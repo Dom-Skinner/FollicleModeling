@@ -108,32 +108,6 @@ function extract_data()
 end
 
 
-function plot_exp_data!(p1,p2,p3,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
-
-    plot!(p1, 2*ones(size(counts_2_month,1)), counts_2_month[:,1], seriestype = :scatter, 
-    label = "2 month", legend = false, title = "Primordial", xlabel = "Age (months)", ylabel = "Counts")
-    plot!(p1, 4*ones(size(counts_4_month,1)), counts_4_month[:,1], seriestype = :scatter, label = "4 month")
-    plot!(p1, 6*ones(size(counts_6_month,1)), counts_6_month[:,1], seriestype = :scatter, label = "6 month")
-    plot!(p1, 9*ones(size(counts_9_month,1)), counts_9_month[:,1], seriestype = :scatter, label = "9 month")
-    plot!(p1, 12*ones(size(counts_12_month,1)), counts_12_month[:,1], seriestype = :scatter, label = "12 month")
-
-
-
-    plot!(p2, 2*ones(size(counts_2_month,1)), counts_2_month[:,2], seriestype = :scatter, label = "2 month", 
-    legend = false, title = "Primary", xlabel = "Age (months)", ylabel = "Counts")
-    plot!(p2, 4*ones(size(counts_4_month,1)), counts_4_month[:,2], seriestype = :scatter, label = "4 month")
-    plot!(p2, 6*ones(size(counts_6_month,1)), counts_6_month[:,2], seriestype = :scatter, label = "6 month")
-    plot!(p2, 9*ones(size(counts_9_month,1)), counts_9_month[:,2], seriestype = :scatter, label = "9 month")
-    plot!(p2, 12*ones(size(counts_12_month,1)), counts_12_month[:,2], seriestype = :scatter, label = "12 month")
-
-    plot!(p3, 2*ones(size(counts_2_month,1)), counts_2_month[:,3], seriestype = :scatter, label = "2 month", 
-    legend = false, title = "Secondary", xlabel = "Age (months)", ylabel = "Counts")
-    plot!(p3, 4*ones(size(counts_4_month,1)), counts_4_month[:,3], seriestype = :scatter, label = "4 month")
-    plot!(p3, 6*ones(size(counts_6_month,1)), counts_6_month[:,3], seriestype = :scatter, label = "6 month")
-    plot!(p3, 9*ones(size(counts_9_month,1)), counts_9_month[:,3], seriestype = :scatter, label = "9 month")
-    plot!(p3, 12*ones(size(counts_12_month,1)), counts_12_month[:,3], seriestype = :scatter, label = "12 month")
-end
-
 
 function confidence_intervals(f,t;N_samples=1000,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975])
     # find confidence intervals for any function f of the samples at some time t
@@ -141,28 +115,6 @@ function confidence_intervals(f,t;N_samples=1000,q_levels = [0.025,0.1, 0.25,0.5
     return quantile(Sample_arr, q_levels)
 end
 
-function plot_π_posterior(chain,in_priors)
-    # plot posterior for each π_k
-    # assumes that prior was Dirichlet
-    α = in_priors["π_vals"].alpha
-    p = [plot() for _ in 1:length(α)]
-    for k in 1:length(α)
-        # extract posterior samples for π_k
-        samples = Float64.(vec(chain[ Symbol("π_vals[$k]")]))
-        # histogram of posterior
-        histogram!(p[k], samples;
-            normalize = :pdf,
-            label="Posterior",
-            title="π[$k]",
-            legend=:topright)
-        # overlay prior marginal Beta(α_k, ∑α₋ₖ)
-        # because Dirichlet marginal for π_k ~ Beta(α_k, ∑_{j≠k}α_j)
-        a, b = α[k], sum(α) - α[k]
-        xs = range(0, 1, length=200)
-        plot!(p[k], xs, pdf.(Beta(a,b), xs), label="Prior")
-    end
-    return p
-end
 
 function empirical_stats(input_data,times_vec)
     times_unique = sort(unique(times_vec))
