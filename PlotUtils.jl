@@ -68,18 +68,20 @@ function plot_empirical_stats(mean_data, cov_data, mean_quantiles_model,cov_quan
     plot!(plt_mean,[1e-6, 1e6], [1e-6, 1e6], label=false, lc=:black, ls=:dash,ylims=ylims(plt_mean),
         xlims=xlims(plt_mean), grid=false)
 
-    
+    c_val = vec(vcat([ones(Int64,3) .+ I(3) for _ in 1:length(cov_data)]...))
     if logscale
         plt_cov = scatter(vec(vcat(cov_data...)), vec(cov_quantiles_model[:,:,:,2]), 
         yerr = (vec(cov_quantiles_model[:,:,:,2]) .- vec(cov_quantiles_model[:,:,:,1]), 
                     vec(cov_quantiles_model[:,:,:,3]) .- vec(cov_quantiles_model[:,:,:,2])),
-        xlabel="Empirical covariance", ylabel=ylabel_cov, label=false,xaxis=:log10, yaxis=:log10)    
+                    xlabel="Empirical covariance", ylabel=ylabel_cov, label=false,xaxis=:log10, yaxis=:log10)    
+        scatter!(plt_cov, vec(vcat(cov_data...)), vec(cov_quantiles_model[:,:,:,2]), c=c_val, label=false)                    
         plot!(plt_cov,[1e-6, 1e6], [1e-6, 1e6], label=false, lc=:black, ls=:dash,ylims=ylims(plt_cov),xlims=xlims(plt_cov), grid=false)
     else
         plt_cov = scatter(vec(vcat(cov_data...)), vec(cov_quantiles_model[:,:,:,2]), 
         yerr = (vec(cov_quantiles_model[:,:,:,2]) .- vec(cov_quantiles_model[:,:,:,1]), 
                     vec(cov_quantiles_model[:,:,:,3]) .- vec(cov_quantiles_model[:,:,:,2])),
-        xlabel="Empirical covariance", ylabel=ylabel_cov, label=false)    
+                    xlabel="Empirical covariance", ylabel=ylabel_cov, label=false)    
+        scatter!(plt_cov, vec(vcat(cov_data...)), vec(cov_quantiles_model[:,:,:,2]), c=c_val, label=false)
         plot!(plt_cov,[-1e6, 1e6], [-1e6, 1e6], label=false, lc=:black, ls=:dash,ylims=ylims(plt_cov),xlims=xlims(plt_cov), grid=false)
     end
 
