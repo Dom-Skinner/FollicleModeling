@@ -62,18 +62,6 @@ end
         initial_values[i,:] ~ Multinomial(initial_sizes[i], π_vals)
     end
     
-    #=
-    dists = [
-        Gamma(2.0, 0.2),
-        Gamma(2.0, 0.2),
-        Gamma(7.5, 0.2),
-        Gamma(7.5, 0.2),
-        Gamma(16.0, 0.2),
-    ]
-    θ ~ arraydist(dists)
-    =#
-    
-    #θ ~ in_priors["θ"] 
     w1 ~ in_priors["w1"]
     w2 ~ in_priors["w2"]
     w3 ~ in_priors["w3"] 
@@ -107,10 +95,7 @@ end
         Λ_all[i][Λ_all[i] .<= 0.0] .= 0.0 # Set negative values to zero
         # Λ = exp(W * t)*π 
     end
-    #z1 = Vector{Float64}(undef, length(times))
 
-
-    #obs_aug1 = Vector{Vector{Int}}(undef, length(times))
     for i in 1:length(times)
         obs_probs = Λ_all[times[i]][1:3]
         fourth_prob = 1.0 - sum(obs_probs)
