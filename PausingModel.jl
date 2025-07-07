@@ -33,11 +33,13 @@ in_priors = Dict(
 )
 
 
+# Fit the model
 
 @time chain = sample(pausing_model(sum(counts_2_month,dims=2),counts_2_month, input_data, times_vec,
     times_unique,in_priors),NUTS(),  MCMCThreads(),2000,2);
 
 
+# Plot credible intervals for the model
 
 N_samples = 20_000
 t_vals = 2:0.5:12
@@ -46,7 +48,6 @@ quantiles_N0 = stack([confidence_intervals(t->sample_model_paused(chain_df,t)[1]
 quantiles_N1 = stack([confidence_intervals(t->sum(sample_model_paused(chain_df,t)[2:3]),t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
 quantiles_N2 = stack([confidence_intervals(t->sum(sample_model_paused(chain_df,t)[4:5]),t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
 quantiles = stack([quantiles_N0,quantiles_N1,quantiles_N2])
-
 
 
 p_arr = [plot(grid=false) for _ in 1:3]
@@ -59,9 +60,10 @@ plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_mo
 plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
 savefig("plots/Pausing_model_fitted_rates.pdf")
 
+# Compare posterior statistics
 mean_data,cov_data = empirical_stats(input_data,times_vec)
 hidden_states = x -> [x[1], x[2] + x[3], x[4] + x[5]]
-sample_fun  = t-> hidden_states(sample_model_paused(chain_df,t))
+sample_fun  = t-> hidden_states(sample_model_exact_paused(chain_df,t))
 mean_quantiles, cov_quantiles = chain_stats_sample(sample_fun, input_data, times_vec, times_unique; 
                                   N=5000, probs=[0.025, 0.5, 0.975])
 plt_mean, plt_cov = plot_empirical_stats(mean_data, cov_data, mean_quantiles,
@@ -69,7 +71,7 @@ plt_mean, plt_cov = plot_empirical_stats(mean_data, cov_data, mean_quantiles,
 plot(plt_mean, plt_cov)
 savefig("plots/pausing_predictive_checks_fitted_rates.pdf")
 
-# prior/posterior check
+# prior/posterior check for parameters
 p_r = histogram(chain_df.r,normalize=:pdf,xlabel="r",label="Posterior", grid=false)
 plot!(p_r, 0:0.01:16,pdf(in_priors["r"] ,0:0.01:16),label = "Prior")
 

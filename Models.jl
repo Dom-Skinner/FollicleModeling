@@ -3,6 +3,17 @@ using ExponentialUtilities
 using NaNMath
 using LinearAlgebra
 
+# This file contains all of the model definitions
+# Each model consists of initial conditions that are propagated through time by a rate matrix.
+# We use the fact that if the initial conditions are multinomial, then the counts at later times are multinomial.
+
+# We replace the multinomial with a normal approximation during inference for efficiency and to get a differentialble model
+
+# Having fitted the model we can sample from either the approximate model or the multinomial model.
+# Confusingly, we're call the samples from approximate model "exact" since this is the exact model that Turing is fitting
+
+# π_vals is the probability distribution for the initial follicle compositions
+
 # ================================ Faddy model ================================
 
 function sample_model_faddy(chain,t)
@@ -117,7 +128,7 @@ end
 
 
 
-
+# ================================ Model with paused states ================================
 
 
 function transition_matrix_paused(θ)
@@ -239,5 +250,5 @@ function sample_model_exact_paused(chain,t)
     W = transition_matrix_paused([θ12/w1, (1-θ12)/w1, θ34/w2, (1-θ34)/w2, 1/w3, θ6, θ7])
     transition_matrix = exponential!(W * (t -2.0)) 
     Λ = transition_matrix[:,1:end-1]* [samp.var"π_vals[1]", samp.var"π_vals[2]", samp.var"π_vals[3]", samp.var"π_vals[4]", samp.var"π_vals[5]"]
-    return multinomial_approx(N, Λ,[randn(),randn(),randn(),randn(),randn()])
+    return multinomial_approx(N, Λ,randn(5))
 end
