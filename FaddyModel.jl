@@ -6,6 +6,7 @@ using JLD2
 
 include("Models.jl")
 include("Utils.jl")
+include("PlotUtils.jl")
 
 counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month = extract_data()
 input_data = Float64.(vcat(counts_4_month,counts_6_month,counts_9_month,counts_12_month))

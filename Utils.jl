@@ -49,27 +49,6 @@ function rand_draw(df::DataFrame)
 end
 
 
-function transition_matrix_paused(θ)
-    return [
-        -(θ[1]+θ[2])    0.0         0.0     0.0   0.0
-        θ[1]     -(θ[3]+θ[4]+θ[6])  θ[7]    0.0   0.0
-        0.0         θ[6]            -θ[7]   0.0   0.0
-        0.0         θ[4]            0.0     -θ[5] 0.0
-        θ[2]        θ[3]            0.0     θ[5]  0.0
-    ]
-end
-
-
-function transition_matrix_paused_v2(θ)
-    return [
-        -(θ[1]+θ[2])    0.0        0.0     0.0   0.0   0.0
-        θ[1]      -(θ[3]+θ[4])     θ[6]    0.0   0.0   0.0
-        0.0             0.0       -θ[6]    0.0   0.0   0.0
-        0.0             θ[4]       0.0    -θ[5]  θ[7]  0.0
-        0.0             0.0        0.0     0.0  -θ[7]  0.0
-        θ[2]            θ[3]       0.0     θ[5]  0.0   0.0
-    ]
-end
 
 function transition_matrix_unpaused(θ)
     return [
