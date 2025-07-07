@@ -67,16 +67,18 @@ plot(plt_mean_post, plot_cov_post)
 
 
 plot(plt_mean_prior,plt_cov_prior,plt_mean_post,plot_cov_post,
-    layout = (2,2), size=(600,600), margin = 4mm)
-
+    layout = (2,2), size=(500,500), margin = 4mm)
+savefig("plots/predictive_checks_initial.pdf")
 
 # prior/posterior check
-histogram(init_cond_df.r,normalize=:pdf,xlabel="r",label="Posterior", grid=false)
-plot!( 0:0.01:8,pdf(in_priors_initial["r"] ,0:0.01:8),label = "Prior")
+p_r = histogram(init_cond_df.r,normalize=:pdf,xlabel="r",label="Posterior", grid=false)
+plot!(p_r, 0:0.01:15,pdf(in_priors_initial["r"] ,0:0.01:15),label = "Prior")
 
-histogram(init_cond_df.p,normalize=:pdf,xlabel="p",label="Posterior", grid=false)
-plot!( 0:0.0002:0.04,pdf(in_priors_initial["p"],0:0.0002:0.04),label = "Prior")
+p_p = histogram(init_cond_df.p,normalize=:pdf,xlabel="p",label="Posterior", grid=false)
+plot!(p_p, 0:0.0002:0.04,pdf(in_priors_initial["p"],0:0.0002:0.04),label = "Prior")
 
 
 p = plot_π_posterior(initial_condition_chain,in_priors_initial)
-plot(p..., layout = (1,3), size=(1000,400))
+plot(p...,p_r,p_p, layout = (2,3), size=(1000,400),
+    margin = 4mm)
+savefig("plots/initial_condition_posterior.pdf")
