@@ -11,9 +11,8 @@ include("PlotUtils.jl")
 
 counts_2_month,_,_,_,_ = extract_data() # here only care about 2 month data
 
-
 in_priors_initial = Dict(
-    "r" => LogNormal(2, 0.5), 
+    "μ" => LogNormal(params_logn(2000,30_000)...), 
     "p" => Beta(2, 500), 
     "π_vals" => Dirichlet([2.5,0.5,0.5]), # we know 1 is more likely so slightly weight towards that.
     # none of the ones below are used in the initial fit
@@ -61,13 +60,22 @@ savefig("plots/predictive_checks_initial.pdf")
 
 # ========= Compare prior and posterior
 # prior/posterior check
-p_r = histogram(init_cond_df.r,normalize=:pdf,xlabel="r",label="Posterior", grid=false)
-plot!(p_r, 0:0.01:15,pdf(in_priors_initial["r"] ,0:0.01:15),label = "Prior")
+p_μ = histogram(init_cond_df.μ,normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
+plot!(p_μ, 1000:5:2500,pdf(in_priors_initial["μ"] ,1000:5:2500),label = "Prior")
 
 p_p = histogram(init_cond_df.p,normalize=:pdf,xlabel="p",label="Posterior", grid=false)
-plot!(p_p, 0:0.0002:0.04,pdf(in_priors_initial["p"],0:0.0002:0.04),label = "Prior")
+plot!(p_p, 0:0.0001:0.025,pdf(in_priors_initial["p"],0:0.0001:0.025),label = "Prior")
 
 p = plot_π_posterior(initial_condition_chain,in_priors_initial)
-plot(p...,p_r,p_p, layout = (2,3), size=(1000,400),
+plot(p...,p_μ,p_p, layout = (2,3), size=(1000,400),
     margin = 4mm)
 savefig("plots/initial_condition_posterior.pdf")
+
+
+# Just to highlight how non-Poisson the original data is
+histogram(counts_2_month[:,1],normalize=:pdf,bins=10,label="Data at 2 months",xlabel="Primordial follicles",
+    ylabel="Density", grid=false)
+plot!(0:3000,pdf(Poisson(mean(counts_2_month[:,1])),0:3000),label="Poisson", grid=false)
+plot!(0:3000,pdf(NegativeBinomial(median( init_cond_df.p .*init_cond_df.μ ./ (1 .-init_cond_df.p) ),
+    median(init_cond_df.p)),0:3000),label="Negative Binomial", grid=false)
+savefig("plots/initial_condition_data.pdf")    

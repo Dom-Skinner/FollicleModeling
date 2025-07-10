@@ -2,6 +2,14 @@
 using DataFrames,CSV
 using Turing 
 
+
+function params_logn(m,v)
+    # returns the parameters of a lognormal distribution with mean m and variance v
+    σ_ln = sqrt(log(1 + v/m^2))
+    μ_ln = log(m) - 0.5*log(1 + v/m^2)
+    return μ_ln, σ_ln
+end
+
 function multinomial_approx_inv(X, π_vals)
     #https://aloneinthefart.blogspot.com/2012/09/normal-approximation-of-multinomial.html
     N = sum(X)
