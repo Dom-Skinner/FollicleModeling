@@ -22,17 +22,14 @@ w2_fixed = 1/θ_fixed[3]
 w3_fixed = 1/θ_fixed[4]
 θ12_fixed = θ_fixed[1]/(θ_fixed[1] + θ_fixed[2])
 
-σ_ln =(m,v) -> sqrt(log(1 + v/m^2))
-μ_ln = (m,v) -> log(m) - 0.5*log(1 + v/m^2)
-#"θ" => filldist(Gamma(2.0, 0.3), 4),.
 in_priors = Dict(
-    "r" => LogNormal(2, 0.5), 
+    "μ" => LogNormal(params_logn(2000,30_000)...), 
     "p" => Beta(2, 500), 
     "π_vals" => Dirichlet(ones(3)),
-    "w1" => LogNormal(μ_ln(w1_fixed,2.0), σ_ln(w1_fixed,2.0)), # set priors based on Faddy values or ballpark magnitude estimates
-    "w2" => LogNormal(μ_ln(w2_fixed,2.0), σ_ln(w2_fixed,2.0)),
-    "w3" => LogNormal(μ_ln(w3_fixed,2.0), σ_ln(w3_fixed,2.0)),
-    "θ12" => Uniform(0, 1)
+    "w1" => LogNormal(params_logn(w1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
+    "w2" => LogNormal(params_logn(w2_fixed,0.005)...),
+    "w3" => LogNormal(params_logn(w3_fixed,0.005)...),
+    "θ12" => Beta(4,4)
 )
 
 
@@ -114,26 +111,27 @@ plot(plt_mean, plt_cov)
 savefig("plots/predictive_checks_fitted_rates.pdf")
 
 # prior/posterior check
-p_r = histogram(chain_df.r,normalize=:pdf,xlabel="r",label="Posterior", grid=false)
-plot!(p_r, 0:0.01:16,pdf(in_priors["r"] ,0:0.01:16),label = "Prior")
+p_μ = histogram(chain_df.μ,normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
+plot!(p_μ, 1000:5:2500,pdf(in_priors["μ"] ,1000:5:2500),label = "Prior")
 
 p_p = histogram(chain_df.p,normalize=:pdf,xlabel="p",label="Posterior", grid=false)
-plot!(p_p, 0:0.0002:0.04,pdf(in_priors["p"],0:0.0002:0.04),label = "Prior")
+plot!(p_p, 0:0.0001:0.025,pdf(in_priors["p"],0:0.0001:0.025),label = "Prior")
+
 
 
 p_w1 = histogram(chain_df.w1,normalize=:pdf,xlabel="w1",label="Posterior", grid=false)
 plot!(p_w1, 0:0.01:9,pdf(in_priors["w1"],0:0.01:9),label = "Prior")
 
 p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="w2",label="Posterior", grid=false)    
-plot!(p_w2, 0:0.01:9,pdf(in_priors["w2"],0:0.01:9),label = "Prior")
+plot!(p_w2, 0:0.01:3,pdf(in_priors["w2"],0:0.01:3),label = "Prior")
 
 p_w3 = histogram(chain_df.w3,normalize=:pdf,xlabel="w3",label="Posterior", grid=false)
-plot!(p_w3, 0:0.01:9,pdf(in_priors["w3"],0:0.01:9),label = "Prior")
+plot!(p_w3, 0:0.01:2,pdf(in_priors["w3"],0:0.01:2),label = "Prior")
 
 p_θ12 = histogram(chain_df.θ12,normalize=:pdf,xlabel="θ12",label="Posterior", grid=false)
 plot!(p_θ12, 0:0.01:1,pdf(in_priors["θ12"],0:0.01:1),label = "Prior")
 p = plot_π_posterior(chain,in_priors)
-plot(p...,p_r,p_p,p_w1,p_w2,p_w3,p_θ12, layout = (3,3), size=(1000,400),
+plot(p...,p_μ,p_p,p_w1,p_w2,p_w3,p_θ12, layout = (3,3), size=(1000,400),
     margin = 4mm)
 
 
