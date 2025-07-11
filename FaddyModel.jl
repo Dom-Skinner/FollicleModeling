@@ -23,8 +23,8 @@ w3_fixed = 1/θ_fixed[4]
 θ12_fixed = θ_fixed[1]/(θ_fixed[1] + θ_fixed[2])
 
 in_priors = Dict(
-    "μ" => LogNormal(params_logn(2000,30_000)...), 
-    "p" => Beta(2, 500), 
+    "μ" => LogNormal(params_logn(1750,35_000)...), 
+    "p" => Beta(3, 750), 
     "π_vals" => Dirichlet(ones(3)),
     "w1" => LogNormal(params_logn(w1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
     "w2" => LogNormal(params_logn(w2_fixed,0.005)...),
@@ -115,7 +115,7 @@ p_μ = histogram(chain_df.μ,normalize=:pdf,xlabel="μ",label="Posterior", grid=
 plot!(p_μ, 1000:5:2500,pdf(in_priors["μ"] ,1000:5:2500),label = "Prior")
 
 p_p = histogram(chain_df.p,normalize=:pdf,xlabel="p",label="Posterior", grid=false)
-plot!(p_p, 0:0.0001:0.025,pdf(in_priors["p"],0:0.0001:0.025),label = "Prior")
+plot!(p_p, 0:0.0001:0.015,pdf(in_priors["p"],0:0.0001:0.015),label = "Prior")
 
 
 

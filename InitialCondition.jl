@@ -12,8 +12,8 @@ include("PlotUtils.jl")
 counts_2_month,_,_,_,_ = extract_data() # here only care about 2 month data
 
 in_priors_initial = Dict(
-    "μ" => LogNormal(params_logn(2000,30_000)...), 
-    "p" => Beta(2, 500), 
+    "μ" => LogNormal(params_logn(1750,35_000)...), 
+    "p" => Beta(3, 750), 
     "π_vals" => Dirichlet([2.5,0.5,0.5]), # we know 1 is more likely so slightly weight towards that.
     # none of the ones below are used in the initial fit
     "w1" => LogNormal(1, 1),

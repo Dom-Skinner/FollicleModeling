@@ -154,9 +154,10 @@ end
 @model function pausing_model(initial_sizes,initial_values,observations,times,times_unique,in_priors)
 
     
-   # First set up initial conditions at 2 months
-   r ~ in_priors["r"]#LogNormal(2, 0.5) 
-   p ~ in_priors["p"]#Beta(2, 500)
+    # First set up initial conditions at 2 months
+    μ ~ in_priors["μ"]
+    p ~ in_priors["p"]
+    r  = p*μ / (1-p)
 
     for i in 1:size(initial_sizes, 1)
         initial_sizes[i] ~ NegativeBinomial(r,p)  
@@ -228,7 +229,10 @@ end
 
 function sample_model_paused(chain,t)
     samp = rand_draw(chain)
-    N = rand(NegativeBinomial(samp.r,samp.p))
+    μ = samp.var"μ"
+    p = samp.var"p"
+    r = p*μ / (1-p)
+    N = rand(NegativeBinomial(r,p))
     w1 = samp.var"w1"
     w2 = samp.var"w2"
     w3 = samp.var"w3"
@@ -244,8 +248,9 @@ end
 
 function sample_model_exact_paused(chain,t)
     samp = rand_draw(chain)
-    r = samp.var"r"
+    μ = samp.var"μ"
     p = samp.var"p"
+    r = p*μ / (1-p)
     N = rand(Gamma(r*(1-p),1/p))
     w1 = samp.var"w1"
     w2 = samp.var"w2"
