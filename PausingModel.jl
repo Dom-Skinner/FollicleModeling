@@ -27,8 +27,8 @@ in_priors = Dict(
     "p" => Beta(3, 750), 
     "π_vals" => Dirichlet(ones(5)),
     "w1" => LogNormal(params_logn(w1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
-    "w2" => LogNormal(params_logn(w2_fixed,0.005)...),
-    "w3" => LogNormal(params_logn(w3_fixed,0.005)...),
+    "w2" => LogNormal(params_logn(w2_fixed,0.02)...),
+    "w3" => LogNormal(params_logn(w3_fixed,0.02)...),
     "θ12" => Beta(4,4),
     "θ34" => Beta(4,4),
     "θ6" => Gamma(2.0, 0.3), 
@@ -68,7 +68,7 @@ mean_data,cov_data = empirical_stats(input_data,times_vec)
 hidden_states = x -> [x[1], x[2] + x[3], x[4] + x[5]]
 sample_fun  = t-> hidden_states(sample_model_exact_paused(chain_df,t))
 mean_quantiles, cov_quantiles = chain_stats_sample(sample_fun, input_data, times_vec, times_unique; 
-                                  N=5000, probs=[0.025, 0.5, 0.975])
+                                  N=5000, probs=[0.25, 0.5, 0.75])
 plt_mean, plt_cov = plot_empirical_stats(mean_data, cov_data, mean_quantiles,
     cov_quantiles; ylabel_mean="Posterior mean", ylabel_cov="Posterior covariance")
 plot(plt_mean, plt_cov)
@@ -108,3 +108,21 @@ p = plot_π_posterior(chain,in_priors)
 plot(p...,p_μ,p_p,p_w1,p_w2,p_w3,p_θ12,p_θ34,p_θ6,p_θ7, layout = (4,4), size=(1000,600),
     margin = 4mm)
 savefig("plots/pausing_model_prior_posterior.pdf")
+
+
+# Make a plot for presentation
+p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="Avg time as Primary (months)",label="Posterior", grid=false)    
+plot!(p_w2, 0:0.01:3,pdf(in_priors["w2"],0:0.01:3),label = "Prior",ylabel="Density")
+
+p_w3 = histogram(chain_df.w3,normalize=:pdf,xlabel="Avg time as Secondary (months)",label="Posterior", grid=false)
+plot!(p_w3, 0:0.01:2,pdf(in_priors["w3"],0:0.01:2),label = "Prior",ylabel="Density")
+
+p_θ12 = histogram(chain_df.θ12,normalize=:pdf,xlabel="Probability of reaching primary",label="Posterior", grid=false)
+plot!(p_θ12, 0:0.01:1,pdf(in_priors["θ12"],0:0.01:1),label = "Prior",ylabel="Density")
+
+p_θ34 = histogram(chain_df.θ34,normalize=:pdf,xlabel="Probability of reaching \n secondary from primary",label="Posterior", grid=false)
+plot!(p_θ34, 0:0.01:1,pdf(in_priors["θ34"],0:0.01:1),label = "Prior",ylabel="Density")
+
+plot(p_w2,p_w3,p_θ12,p_θ34, layout = (1,4), size=(1000,300),
+    margin = 6mm,xguidefontsize=8,guidefontsize=8)
+savefig("plots/PosteriorPredsPaused.pdf")

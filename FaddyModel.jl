@@ -1,4 +1,5 @@
 using Plots
+using AugmentedGPLikelihoods
 using StatsPlots
 using Measures
 using Random
@@ -27,8 +28,8 @@ in_priors = Dict(
     "p" => Beta(3, 750), 
     "π_vals" => Dirichlet(ones(3)),
     "w1" => LogNormal(params_logn(w1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
-    "w2" => LogNormal(params_logn(w2_fixed,0.005)...),
-    "w3" => LogNormal(params_logn(w3_fixed,0.005)...),
+    "w2" => LogNormal(params_logn(w2_fixed,0.008)...),
+    "w3" => LogNormal(params_logn(w3_fixed,0.008)...),
     "θ12" => Beta(4,4)
 )
 
@@ -78,7 +79,7 @@ savefig("plots/predictive_checks_fixed_rates.pdf")
 # ========== Now fit everything, not just initial conditions ==========
     
 @time chain = sample(faddy_model(sum(counts_2_month,dims=2),counts_2_month, input_data, times_vec,
-    times_unique,in_priors),NUTS(),  MCMCThreads(),1000,2);
+    times_unique,in_priors),NUTS(),  MCMCThreads(),100,2);
 
 #jldsave("models/FaddyModelFittedRates.jld2"; chain)
 
@@ -136,3 +137,19 @@ plot(p...,p_μ,p_p,p_w1,p_w2,p_w3,p_θ12, layout = (3,3), size=(1000,400),
 
 
 savefig("plots/Faddy_model_fitted_params.pdf")
+
+
+#[rand(Exponential(t)) for t in chain_df.w2]
+# Make a plot for presentation
+p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="Avg time as Primary",label="Posterior", grid=false)    
+plot!(p_w2, 0:0.01:3,pdf(in_priors["w2"],0:0.01:3),label = "Prior",ylabel="Density")
+
+p_w3 = histogram(chain_df.w3,normalize=:pdf,xlabel="Avg time as Secondary",label="Posterior", grid=false)
+plot!(p_w3, 0:0.01:2,pdf(in_priors["w3"],0:0.01:2),label = "Prior",ylabel="Density")
+
+p_θ12 = histogram(chain_df.θ12,normalize=:pdf,xlabel="Probability of reaching primary",label="Posterior", grid=false)
+plot!(p_θ12, 0:0.01:1,pdf(in_priors["θ12"],0:0.01:1),label = "Prior",ylabel="Density")
+
+plot(p_w2,p_w3,p_θ12, layout = (1,3), size=(1000,300),
+    margin = 5mm)
+savefig("plots/PosteriorPredsFaddy.pdf")

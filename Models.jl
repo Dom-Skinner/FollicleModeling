@@ -14,6 +14,38 @@ using LinearAlgebra
 
 # π_vals is the probability distribution for the initial follicle compositions
 
+
+function finite_transition_matrix(W,t)
+    
+    if any(isnan, W) || any(isinf, W) || maximum(abs.(W)) > 1e10
+        return W *t # don't throw error for bad theta choice
+    end
+    #@info "W matrix" W minimum(W) maximum(W) isnan.(W) isinf.(W)
+    transition_matrix = exponential!(W * (t - 2.0)) # t=2.0 is the initial time! 
+    #=
+        try
+            transition_matrix = exponential!(W * (t - 2.0)) # t=2.0 is the initial time! 
+            return transition_matrix
+        catch 
+            @warning "Error in finite_transition_matrix: W matrix is not finite or too large"
+            Turing.@addlogprob!(-Inf) # try to avoid NaN params
+            return
+        end
+    end
+    =#
+    return transition_matrix
+end
+
+function probability_flow(π_vals,W,times_unique)
+    Λ_all = Vector{typeof(π_vals)}(undef, length(times_unique))
+    for i in 1:length(times_unique)
+        transition_matrix = finite_transition_matrix(W, times_unique[i])
+        Λ_all[i] = transition_matrix[:,1:end-1]* π_vals # by convention final column is unobserved state
+        Λ_all[i][Λ_all[i] .<= 0.0] .= 0.0 # Set negative values to zero
+        # Λ = exp(W * t)*π 
+    end
+    return Λ_all
+end
 # ================================ Faddy model ================================
 
 function sample_model_faddy(chain,t)
@@ -93,26 +125,8 @@ end
 
     W = transition_matrix_faddy([θ12/w1, (1-θ12)/w1, 1/w2, 1/w3])
 
-   
-    Λ_all = Vector{typeof(π_vals)}(undef, length(times_unique))
-    for i in 1:length(times_unique)
-        
-        if any(isnan, W) || any(isinf, W) || maximum(abs.(W)) > 1e10
-            transition_matrix = W * (times_unique[i] -2.0) # don't throw error for bad theta choice
-        else
-            #@info "W matrix" W minimum(W) maximum(W) isnan.(W) isinf.(W)
-            try
-                transition_matrix = exponential!(W * (times_unique[i] -2.0)) 
-            catch 
-                Turing.@addlogprob!(-Inf) # try to avoid NaN params
-                return
-            end
-        end
-        
-        Λ_all[i] = transition_matrix[:,1:end-1]* π_vals
-        Λ_all[i][Λ_all[i] .<= 0.0] .= 0.0 # Set negative values to zero
-        # Λ = exp(W * t)*π 
-    end
+    Λ_all = probability_flow(π_vals,W,times_unique)
+
 
     for i in 1:length(times)
         obs_probs = Λ_all[times[i]][1:3]
@@ -185,27 +199,7 @@ end
 
     W = transition_matrix_paused([θ12/w1, (1-θ12)/w1, θ34/w2, (1-θ34)/w2, 1/w3, θ6, θ7])
 
-   
-    Λ_all = Vector{typeof(π_vals)}(undef, length(times_unique))
-    for i in 1:length(times_unique)
-        
-        if any(isnan, W) || any(isinf, W) || maximum(abs.(W)) > 1e10
-            transition_matrix = W * (times_unique[i] -2.0) # don't throw error for bad theta choice
-        else
-            #@info "W matrix" W minimum(W) maximum(W) isnan.(W) isinf.(W)
-            try
-                transition_matrix = exponential!(W * (times_unique[i] -2.0)) 
-            catch 
-                Turing.@addlogprob!(-Inf) # try to avoid NaN params
-                return
-            end
-            
-        end
-        
-        Λ_all[i] = transition_matrix[:,1:end-1]* π_vals
-        Λ_all[i][Λ_all[i] .<= 0.0] .= 0.0 # Set negative values to zero
-        # Λ = exp(W * t)*π 
-    end
+   Λ_all = probability_flow(π_vals,W,times_unique)
 
 
     for i in 1:length(times)
@@ -330,28 +324,7 @@ end
 
     W = transition_matrix_queuing(params_to_rates_queuing(w1,w2,w3,θ12,θ34,θ345,θ678,θ67))
 
-   
-    Λ_all = Vector{typeof(π_vals)}(undef, length(times_unique))
-    for i in 1:length(times_unique)
-        
-        if any(isnan, W) || any(isinf, W) || maximum(abs.(W)) > 1e10
-            transition_matrix = W * (times_unique[i] -2.0) # don't throw error for bad theta choice
-        else
-            #@info "W matrix" W minimum(W) maximum(W) isnan.(W) isinf.(W)
-            try
-                transition_matrix = exponential!(W * (times_unique[i] -2.0)) 
-            catch 
-                Turing.@addlogprob!(-Inf) # try to avoid NaN params
-                return
-            end
-            
-        end
-        
-        Λ_all[i] = transition_matrix[:,1:end-1]* π_vals
-        Λ_all[i][Λ_all[i] .<= 0.0] .= 0.0 # Set negative values to zero
-        # Λ = exp(W * t)*π 
-    end
-
+    Λ_all = probability_flow(π_vals,W,times_unique)
 
     for i in 1:length(times)
         obs_probs = Λ_all[times[i]][1:length(π_vals)]
