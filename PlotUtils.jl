@@ -29,14 +29,14 @@ function plot_exp_data!(p1,p2,p3,counts_2_month,counts_4_month,counts_6_month,co
 end
 
 
-function plot_π_posterior(chain,in_priors)
+function plot_π_posterior(chain,π_priors)
     # plot posterior for each π_k
     # assumes that prior was Dirichlet
-    α = in_priors["π_vals"].alpha
+    α = π_priors.alpha
     p = [plot() for _ in 1:length(α)]
     for k in 1:length(α)
         # extract posterior samples for π_k
-        samples = Float64.(vec(chain[ Symbol("π_vals[$k]")]))
+        samples = Float64.(vec(chain[ "π_vals[$k]"]))
         # histogram of posterior
         histogram!(p[k], samples;
             normalize = :pdf,

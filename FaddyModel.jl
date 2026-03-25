@@ -23,34 +23,47 @@ w2_fixed = 1/θ_fixed[3]
 w3_fixed = 1/θ_fixed[4]
 θ12_fixed = θ_fixed[1]/(θ_fixed[1] + θ_fixed[2])
 
-in_priors = Dict(
-    "μ" => LogNormal(params_logn(1750,35_000)...), 
-    "p" => Beta(3, 750), 
-    "π_vals" => Dirichlet(ones(3)),
-    "w1" => LogNormal(params_logn(w1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
-    "w2" => LogNormal(params_logn(w2_fixed,0.008)...),
-    "w3" => LogNormal(params_logn(w3_fixed,0.008)...),
-    "θ12" => Beta(4,4)
-)
+
+innit_priors = [LogNormal(params_logn(1750,35_000)...),
+                Truncated(Beta(3, 750), 1e-8,Inf)]
+π_priors = Dirichlet(ones(3))
+
+rate_priors = [ LogNormal(params_logn(w1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
+    LogNormal(params_logn(w2_fixed,0.008)...),
+    LogNormal(params_logn(w3_fixed,0.008)...),
+    Beta(4,4)]
+coarse_grain_arr = I(3)    
+
+
+
+function transition_matrix_faddy(params)
+    w1, w2, w3, θ12 = params
+    θ = [θ12/w1, (1-θ12)/w1, 1/w2, 1/w3]
+    return [
+        -(θ[1]+θ[2])  0.0      0.0       0.0  
+        θ[1]      -(θ[3])      0.0       0.0
+        0.0         θ[3]      -θ[4]      0.0
+        θ[2]          0        θ[4]      0.0
+    ]
+end
+
 
 
 ################ First we fit with fixed rates, i.e. initial conditions only
-@time faddy_chain = sample(faddy_model(sum(counts_2_month,dims=2),counts_2_month, [],[],[],in_priors),NUTS(),  MCMCThreads(),10000,2);
+@time faddy_chain = sample(total_model(counts_2_month, [],[],[],
+    innit_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),1000,2);
 #jldsave("models/FaddyModel_fixed.jld2"; faddy_chain)
-#faddy_chain = sample(faddy_model(sum(counts_2_month,dims=2),counts_2_month, [],[],[],in_priors), Prior(), 1_0000)
 
-N_samples = 40_000
+
+N_samples = 40_0
 t_vals = 2:0.25:12
-faddy_chain_df = DataFrame(faddy_chain)
-faddy_chain_df.var"w1" .= w1_fixed
-faddy_chain_df.var"w2" .= w2_fixed
-faddy_chain_df.var"w3" .= w3_fixed
-faddy_chain_df.var"θ12" .= θ12_fixed
-quantiles_N0 = stack([confidence_intervals(t->sample_model_faddy(faddy_chain_df,t)[1],t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
-quantiles_N1 = stack([confidence_intervals(t->sum(sample_model_faddy(faddy_chain_df,t)[2]),t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
-quantiles_N2 = stack([confidence_intervals(t->sample_model_faddy(faddy_chain_df,t)[3],t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
-quantiles = stack([quantiles_N0,quantiles_N1,quantiles_N2])
 
+sample_fun = t -> sample_model(faddy_chain,t, transition_matrix_faddy)
+q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
+quantiles_N0 = stack([confidence_intervals(t->sample_fun(t)[1],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
+quantiles_N1 = stack([confidence_intervals(t->sample_fun(t)[2],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
+quantiles_N2 = stack([confidence_intervals(t->sample_fun(t)[3],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
+quantiles = stack([quantiles_N0,quantiles_N1,quantiles_N2])
 
 p_arr = [plot(grid=false) for _ in 1:3]
 nbands = (size(quantiles, 1)-1) >> 1
@@ -67,8 +80,7 @@ savefig("plots/Faddy_model_fixed_rates.pdf")
 
 mean_data,cov_data = empirical_stats(input_data,times_vec)
 
-sample_fun_prior = t -> sample_model_faddy(faddy_chain_df, t)[1:3]
-mean_quantiles_post, cov_quantiles_post = chain_stats_sample(sample_fun_prior, input_data, times_vec, times_unique; 
+mean_quantiles_post, cov_quantiles_post = chain_stats_sample(sample_fun, input_data, times_vec, times_unique; 
                                   N=5000, probs=[0.025, 0.5, 0.975])
 
 plt_mean_post, plt_cov_post = plot_empirical_stats(mean_data, cov_data, mean_quantiles_post,
@@ -78,19 +90,20 @@ savefig("plots/predictive_checks_fixed_rates.pdf")
 
 # ========== Now fit everything, not just initial conditions ==========
     
-@time chain = sample(faddy_model(sum(counts_2_month,dims=2),counts_2_month, input_data, times_vec,
-    times_unique,in_priors),NUTS(),  MCMCThreads(),100,2);
 
-#jldsave("models/FaddyModelFittedRates.jld2"; chain)
+@time chain = sample(total_model(counts_2_month, Int64.(input_data), times_vec,
+    times_unique,innit_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),300,2);
 
-N_samples = 20_000
+    
+sample_fun = t -> sample_model(chain,t, transition_matrix_faddy)
+
+N_samples = 20_0
 t_vals = 2:0.5:12
-chain_df = DataFrame(chain)
-quantiles_N0 = stack([confidence_intervals(t->sample_model_exact_faddy(chain_df,t)[1],t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
-quantiles_N1 = stack([confidence_intervals(t->sum(sample_model_exact_faddy(chain_df,t)[2]),t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
-quantiles_N2 = stack([confidence_intervals(t->sample_model_exact_faddy(chain_df,t)[3],t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
+q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
+quantiles_N0 = stack([confidence_intervals(t->sample_fun(t)[1],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
+quantiles_N1 = stack([confidence_intervals(t->sample_fun(t)[2],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
+quantiles_N2 = stack([confidence_intervals(t->sample_fun(t)[3],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
 quantiles = stack([quantiles_N0,quantiles_N1,quantiles_N2])
-
 
 p_arr = [plot(grid=false) for _ in 1:3]
 nbands = (size(quantiles, 1)-1) >> 1
@@ -103,7 +116,6 @@ plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
 savefig("plots/Faddy_model_fitted_rates.pdf")
 
 
-sample_fun  = t->sample_model_faddy(chain_df,t)[1:3]
 mean_quantiles, cov_quantiles = chain_stats_sample(sample_fun, input_data, times_vec, times_unique; 
                                   N=5000, probs=[0.025, 0.5, 0.975])
 plt_mean, plt_cov = plot_empirical_stats(mean_data, cov_data, mean_quantiles,
@@ -112,26 +124,28 @@ plot(plt_mean, plt_cov)
 savefig("plots/predictive_checks_fitted_rates.pdf")
 
 # prior/posterior check
-p_μ = histogram(chain_df.μ,normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
-plot!(p_μ, 1000:5:2500,pdf(in_priors["μ"] ,1000:5:2500),label = "Prior")
+p_μ = histogram(vec(chain["inpriors[1]"]),normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
+plot!(p_μ, 1000:5:2500,pdf(innit_priors[1] ,1000:5:2500),label = "Prior")
 
-p_p = histogram(chain_df.p,normalize=:pdf,xlabel="p",label="Posterior", grid=false)
-plot!(p_p, 0:0.0001:0.015,pdf(in_priors["p"],0:0.0001:0.015),label = "Prior")
+p_p = histogram(vec(chain["inpriors[2]"]),normalize=:pdf,xlabel="p",label="Posterior", grid=false)
+plot!(p_p, 0:0.0001:0.015,pdf(innit_priors[2],0:0.0001:0.015),label = "Prior")
 
 
 
-p_w1 = histogram(chain_df.w1,normalize=:pdf,xlabel="w1",label="Posterior", grid=false)
-plot!(p_w1, 0:0.01:9,pdf(in_priors["w1"],0:0.01:9),label = "Prior")
+p_w1 = histogram(vec(chain["rate_params[1]"]),normalize=:pdf,xlabel="w1",label="Posterior", grid=false)
+plot!(p_w1, 0:0.01:9,pdf(rate_priors[1],0:0.01:9),label = "Prior")
 
-p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="w2",label="Posterior", grid=false)    
-plot!(p_w2, 0:0.01:3,pdf(in_priors["w2"],0:0.01:3),label = "Prior")
+p_w2 = histogram(vec(chain["rate_params[2]"]),normalize=:pdf,xlabel="w2",label="Posterior", grid=false)    
+plot!(p_w2, 0:0.01:3,pdf(rate_priors[2],0:0.01:3),label = "Prior")
 
-p_w3 = histogram(chain_df.w3,normalize=:pdf,xlabel="w3",label="Posterior", grid=false)
-plot!(p_w3, 0:0.01:2,pdf(in_priors["w3"],0:0.01:2),label = "Prior")
+p_w3 = histogram(vec(chain["rate_params[3]"]),normalize=:pdf,xlabel="w3",label="Posterior", grid=false)
+plot!(p_w3, 0:0.01:2,pdf(rate_priors[3],0:0.01:2),label = "Prior")
 
-p_θ12 = histogram(chain_df.θ12,normalize=:pdf,xlabel="θ12",label="Posterior", grid=false)
-plot!(p_θ12, 0:0.01:1,pdf(in_priors["θ12"],0:0.01:1),label = "Prior")
-p = plot_π_posterior(chain,in_priors)
+p_θ12 = histogram(vec(chain["rate_params[4]"]),normalize=:pdf,xlabel="θ12",label="Posterior", grid=false)
+plot!(p_θ12, 0:0.01:1,pdf(rate_priors[4],0:0.01:1),label = "Prior")
+
+p = plot_π_posterior(chain,π_priors)
+
 plot(p...,p_μ,p_p,p_w1,p_w2,p_w3,p_θ12, layout = (3,3), size=(1000,400),
     margin = 4mm)
 
@@ -141,14 +155,14 @@ savefig("plots/Faddy_model_fitted_params.pdf")
 
 #[rand(Exponential(t)) for t in chain_df.w2]
 # Make a plot for presentation
-p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="Avg time as Primary",label="Posterior", grid=false)    
-plot!(p_w2, 0:0.01:3,pdf(in_priors["w2"],0:0.01:3),label = "Prior",ylabel="Density")
+p_w2 = histogram(vec(chain["rate_params[2]"]),normalize=:pdf,xlabel="Avg time as Primary",label="Posterior", grid=false)    
+plot!(p_w2, 0:0.01:3,pdf(rate_priors[2],0:0.01:3),label = "Prior",ylabel="Density")
 
-p_w3 = histogram(chain_df.w3,normalize=:pdf,xlabel="Avg time as Secondary",label="Posterior", grid=false)
-plot!(p_w3, 0:0.01:2,pdf(in_priors["w3"],0:0.01:2),label = "Prior",ylabel="Density")
+p_w3 = histogram(vec(chain["rate_params[3]"]),normalize=:pdf,xlabel="Avg time as Secondary",label="Posterior", grid=false)
+plot!(p_w3, 0:0.01:2,pdf(rate_priors[3],0:0.01:2),label = "Prior",ylabel="Density")
 
-p_θ12 = histogram(chain_df.θ12,normalize=:pdf,xlabel="Probability of reaching primary",label="Posterior", grid=false)
-plot!(p_θ12, 0:0.01:1,pdf(in_priors["θ12"],0:0.01:1),label = "Prior",ylabel="Density")
+p_θ12 = histogram(vec(chain["rate_params[4]"]),normalize=:pdf,xlabel="Probability of reaching primary",label="Posterior", grid=false)
+plot!(p_θ12, 0:0.01:1,pdf(rate_priors[4],0:0.01:1),label = "Prior",ylabel="Density")
 
 plot(p_w2,p_w3,p_θ12, layout = (1,3), size=(1000,300),
     margin = 5mm)
