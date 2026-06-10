@@ -18,6 +18,33 @@ function credible_ribbon_plots(quantiles, t_vals)
 end
 
 
+# Returns one histogram+prior-overlay plot per parameter.
+# param_keys: chain variable names e.g. ["ic[1]", "rate_params[1]", ...]
+# priors:     matching distribution objects
+# x_ranges:   matching plot ranges
+# labels:     x-axis labels; pass ylabel="Density" for presentation plots
+function plot_param_posteriors(chain, param_keys, priors, x_ranges, labels; ylabel="")
+    plots = []
+    for (key, prior, xr, lab) in zip(param_keys, priors, x_ranges, labels)
+        p = histogram(vec(chain[key]); normalize=:pdf, xlabel=lab, label="Posterior", grid=false)
+        isempty(ylabel) || plot!(p; ylabel=ylabel)
+        plot!(p, collect(xr), pdf.(prior, collect(xr)); label="Prior")
+        push!(plots, p)
+    end
+    return plots
+end
+
+# Runs chain_stats_sample and returns (plt_mean, plt_cov) calibration scatter plots.
+# mean_data / cov_data should be pre-computed with empirical_stats() and reused across calls.
+# Caller is responsible for plot() and savefig().
+function calibration_plots(sample_fun, input_data, times_vec, times_unique, mean_data, cov_data;
+        N=5000, probs=[0.025, 0.5, 0.975],
+        ylabel_mean="Posterior mean", ylabel_cov="Posterior covariance")
+    mean_q, cov_q = chain_stats_sample(sample_fun, input_data, times_vec, times_unique; N, probs)
+    return plot_empirical_stats(mean_data, cov_data, mean_q, cov_q; ylabel_mean, ylabel_cov)
+end
+
+
 function plot_exp_data!(p1,p2,p3,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
 
     plot!(p1, 2*ones(size(counts_2_month,1)), counts_2_month[:,1], seriestype = :scatter, 

@@ -57,9 +57,12 @@ end
     rate_params ~ arraydist(rate_priors)
 
     A = sum(π_vals)
-    π_k = clamp.(coarse_grain_arr*π_vals ./ (A + b),1e-10,1-1e-9)
+    π_k = max.(coarse_grain_arr*π_vals ./ (A + b), 1e-10)
+    if sum(π_k) > 1 - 1e-10
+        π_k = π_k ./ (sum(π_k) + 1e-9)
+    end
 
-    for i in 1:size(initial_values, 1)    
+    for i in 1:size(initial_values, 1)
         initial_values[i,:] ~ AugmentedGPLikelihoods.SpecialDistributions.NegativeMultinomial(r, π_k)
     end
     
@@ -77,7 +80,11 @@ end
     for i in 1:length(times)
         a_k = Λ_all[times[i]][1:end-1] # final state considered unobserved
         A = sum(a_k)
-        π_k = clamp.(coarse_grain_arr*a_k ./ (A + b),1e-10,1-1e-9)
+        π_k = max.(coarse_grain_arr*a_k ./ (A + b), 1e-10)
+        if sum(π_k) > 1 - 1e-10
+            π_k = π_k ./ (sum(π_k) + 1e-9)
+        end
+        #π_k = π_k ./ (sum(π_k) + 1e-9)
         observations[i,:] ~ AugmentedGPLikelihoods.SpecialDistributions.NegativeMultinomial(r, π_k)
     end
 

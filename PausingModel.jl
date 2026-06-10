@@ -74,8 +74,7 @@ N_samples = 400
 t_vals = 2:0.25:12
 
 sample_fun_prior = make_sample_fun(prior_chain, transition_matrix_paused; coarse_grain=coarse_grain_paused)
-q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
-quantiles = compute_quantiles(sample_fun_prior, t_vals; N_samples, q_levels)
+quantiles = compute_quantiles(sample_fun_prior, t_vals; N_samples)
 
 p_arr = credible_ribbon_plots(quantiles, t_vals)
 plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
@@ -83,13 +82,11 @@ plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_mo
 plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
 savefig("plots/Pausing_model_fixed_rates.pdf")
 
-mean_data,cov_data = empirical_stats(input_data,times_vec)
+mean_data, cov_data = empirical_stats(input_data, times_vec)
 
-mean_quantiles_prior, cov_quantiles_prior = chain_stats_sample(sample_fun_prior, input_data, times_vec, times_unique;
-    N=5000, probs=[0.025, 0.5, 0.975])
-plt_mean_prior, plt_cov_prior = plot_empirical_stats(mean_data, cov_data, mean_quantiles_prior,
-    cov_quantiles_prior; ylabel_mean="Prior mean", ylabel_cov="Prior covariance")
-plot(plt_mean_prior, plt_cov_prior)
+plt_mean, plt_cov = calibration_plots(sample_fun_prior, input_data, times_vec, times_unique, mean_data, cov_data;
+    ylabel_mean="Prior mean", ylabel_cov="Prior covariance")
+plot(plt_mean, plt_cov)
 savefig("plots/pausing_predictive_checks_fixed_rates.pdf")
 
 
@@ -106,8 +103,7 @@ savefig("plots/pausing_predictive_checks_fixed_rates.pdf")
 
 t_vals = 2:0.5:12
 sample_fun = make_sample_fun(chain, transition_matrix_paused; coarse_grain=coarse_grain_paused)
-q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
-quantiles = compute_quantiles(sample_fun, t_vals; N_samples, q_levels)
+quantiles = compute_quantiles(sample_fun, t_vals; N_samples)
 
 p_arr = credible_ribbon_plots(quantiles, t_vals)
 plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
@@ -116,60 +112,29 @@ plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
 savefig("plots/Pausing_model_fitted_rates.pdf")
 
 # Posterior predictive calibration (mean and covariance)
-mean_quantiles, cov_quantiles = chain_stats_sample(sample_fun, input_data, times_vec, times_unique;
-                                  N=5000, probs=[0.025, 0.5, 0.975])
-plt_mean, plt_cov = plot_empirical_stats(mean_data, cov_data, mean_quantiles,
-    cov_quantiles; ylabel_mean="Posterior mean", ylabel_cov="Posterior covariance")
+plt_mean, plt_cov = calibration_plots(sample_fun, input_data, times_vec, times_unique, mean_data, cov_data)
 plot(plt_mean, plt_cov)
 savefig("plots/pausing_predictive_checks_fitted_rates.pdf")
 
 # Prior/posterior comparison for each parameter
-p_μ = histogram(vec(chain["ic[1]"]),normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
-plot!(p_μ, 1000:5:2500,pdf(init_priors[1],1000:5:2500),label = "Prior")
-
-p_p = histogram(vec(chain["ic[2]"]),normalize=:pdf,xlabel="p",label="Posterior", grid=false)
-plot!(p_p, 0:0.0001:0.015,pdf(init_priors[2],0:0.0001:0.015),label = "Prior")
-
-p_w1 = histogram(vec(chain["rate_params[1]"]),normalize=:pdf,xlabel="w1",label="Posterior", grid=false)
-plot!(p_w1, 0:0.01:9,pdf(rate_priors_paused[1],0:0.01:9),label = "Prior")
-
-p_w2 = histogram(vec(chain["rate_params[2]"]),normalize=:pdf,xlabel="w2",label="Posterior", grid=false)
-plot!(p_w2, 0:0.01:3,pdf(rate_priors_paused[2],0:0.01:3),label = "Prior")
-
-p_w3 = histogram(vec(chain["rate_params[3]"]),normalize=:pdf,xlabel="w3",label="Posterior", grid=false)
-plot!(p_w3, 0:0.01:2,pdf(rate_priors_paused[3],0:0.01:2),label = "Prior")
-
-p_θ12 = histogram(vec(chain["rate_params[4]"]),normalize=:pdf,xlabel="θ12",label="Posterior", grid=false)
-plot!(p_θ12, 0:0.01:1,pdf(rate_priors_paused[4],0:0.01:1),label = "Prior")
-
-p_θ34 = histogram(vec(chain["rate_params[5]"]),normalize=:pdf,xlabel="θ34",label="Posterior", grid=false)
-plot!(p_θ34, 0:0.01:1,pdf(rate_priors_paused[5],0:0.01:1),label = "Prior")
-
-p_θ6 = histogram(vec(chain["rate_params[6]"]),normalize=:pdf,xlabel="θ6",label="Posterior", grid=false)
-plot!(p_θ6, 0:0.01:1,pdf(rate_priors_paused[6],0:0.01:1),label = "Prior")
-
-p_θ7 = histogram(vec(chain["rate_params[7]"]),normalize=:pdf,xlabel="θ7",label="Posterior", grid=false)
-plot!(p_θ7, 0:0.01:1,pdf(rate_priors_paused[7],0:0.01:1),label = "Prior")
-
+param_plots = plot_param_posteriors(chain,
+    ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]",
+     "rate_params[4]", "rate_params[5]", "rate_params[6]", "rate_params[7]"],
+    [init_priors..., rate_priors_paused...],
+    [1000:5:2500, 0:0.0001:0.015, 0:0.01:9, 0:0.01:3, 0:0.01:2,
+     0:0.01:1, 0:0.01:1, 0:0.01:1, 0:0.01:1],
+    ["μ", "p", "w1", "w2", "w3", "θ12", "θ34", "θ6", "θ7"])
 p_π = plot_π_posterior(chain, Dirichlet(ones(5)))
-plot(p_π...,p_μ,p_p,p_w1,p_w2,p_w3,p_θ12,p_θ34,p_θ6,p_θ7, layout = (4,4), size=(1000,600),
-    margin = 4mm)
+plot(p_π..., param_plots..., layout=(4,4), size=(1000,600), margin=4mm)
 savefig("plots/pausing_model_prior_posterior.pdf")
 
-
 # Presentation-quality parameter plots
-p_w2 = histogram(vec(chain["rate_params[2]"]),normalize=:pdf,xlabel="Avg time as Primary (months)",label="Posterior", grid=false)
-plot!(p_w2, 0:0.01:3,pdf(rate_priors_paused[2],0:0.01:3),label = "Prior",ylabel="Density")
-
-p_w3 = histogram(vec(chain["rate_params[3]"]),normalize=:pdf,xlabel="Avg time as Secondary (months)",label="Posterior", grid=false)
-plot!(p_w3, 0:0.01:2,pdf(rate_priors_paused[3],0:0.01:2),label = "Prior",ylabel="Density")
-
-p_θ12 = histogram(vec(chain["rate_params[4]"]),normalize=:pdf,xlabel="Probability of reaching primary",label="Posterior", grid=false)
-plot!(p_θ12, 0:0.01:1,pdf(rate_priors_paused[4],0:0.01:1),label = "Prior",ylabel="Density")
-
-p_θ34 = histogram(vec(chain["rate_params[5]"]),normalize=:pdf,xlabel="Probability of reaching \n secondary from primary",label="Posterior", grid=false)
-plot!(p_θ34, 0:0.01:1,pdf(rate_priors_paused[5],0:0.01:1),label = "Prior",ylabel="Density")
-
-plot(p_w2,p_w3,p_θ12,p_θ34, layout = (1,4), size=(1000,300),
-    margin = 6mm,xguidefontsize=8,guidefontsize=8)
+pres_plots = plot_param_posteriors(chain,
+    ["rate_params[2]", "rate_params[3]", "rate_params[4]", "rate_params[5]"],
+    rate_priors_paused[2:5],
+    [0:0.01:3, 0:0.01:2, 0:0.01:1, 0:0.01:1],
+    ["Avg time as Primary (months)", "Avg time as Secondary (months)",
+     "Probability of reaching primary", "Probability of reaching \n secondary from primary"];
+    ylabel="Density")
+plot(pres_plots..., layout=(1,4), size=(1000,300), margin=6mm, xguidefontsize=8, guidefontsize=8)
 savefig("plots/PosteriorPredsPaused.pdf")

@@ -46,17 +46,16 @@ end
 
 
 ################ First we fit with fixed rates, i.e. initial conditions only
-@time faddy_chain = sample(total_model(counts_2_month, [],[],[],
+@time prior_chain = sample(total_model(counts_2_month, [],[],[],
     init_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),1000,2);
-#jldsave("models/FaddyModel_fixed.jld2"; faddy_chain)
+#jldsave("models/FaddyModel_fixed.jld2"; prior_chain)
 
 
 N_samples = 40_0
 t_vals = 2:0.25:12
 
-sample_fun = make_sample_fun(faddy_chain, transition_matrix_faddy)
-q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
-quantiles = compute_quantiles(sample_fun, t_vals; N_samples, q_levels)
+sample_fun = make_sample_fun(prior_chain, transition_matrix_faddy)
+quantiles = compute_quantiles(sample_fun, t_vals; N_samples)
 
 p_arr = credible_ribbon_plots(quantiles, t_vals)
 plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
@@ -67,14 +66,11 @@ savefig("plots/Faddy_model_fixed_rates.pdf")
 
 
 
-mean_data,cov_data = empirical_stats(input_data,times_vec)
+mean_data, cov_data = empirical_stats(input_data, times_vec)
 
-mean_quantiles_post, cov_quantiles_post = chain_stats_sample(sample_fun, input_data, times_vec, times_unique; 
-                                  N=5000, probs=[0.025, 0.5, 0.975])
-
-plt_mean_post, plt_cov_post = plot_empirical_stats(mean_data, cov_data, mean_quantiles_post,
-    cov_quantiles_post; ylabel_mean="Prior mean", ylabel_cov="Prior covariance")
-plot(plt_mean_post, plt_cov_post)
+plt_mean, plt_cov = calibration_plots(sample_fun, input_data, times_vec, times_unique, mean_data, cov_data;
+    ylabel_mean="Prior mean", ylabel_cov="Prior covariance")
+plot(plt_mean, plt_cov)
 savefig("plots/predictive_checks_fixed_rates.pdf")
 
 # ========== Now fit everything, not just initial conditions ==========
@@ -88,8 +84,7 @@ sample_fun = make_sample_fun(chain, transition_matrix_faddy)
 
 N_samples = 20_0
 t_vals = 2:0.5:12
-q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
-quantiles = compute_quantiles(sample_fun, t_vals; N_samples, q_levels)
+quantiles = compute_quantiles(sample_fun, t_vals; N_samples)
 
 p_arr = credible_ribbon_plots(quantiles, t_vals)
 plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
@@ -98,54 +93,26 @@ plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
 savefig("plots/Faddy_model_fitted_rates.pdf")
 
 
-mean_quantiles, cov_quantiles = chain_stats_sample(sample_fun, input_data, times_vec, times_unique; 
-                                  N=5000, probs=[0.025, 0.5, 0.975])
-plt_mean, plt_cov = plot_empirical_stats(mean_data, cov_data, mean_quantiles,
-    cov_quantiles; ylabel_mean="Posterior mean", ylabel_cov="Posterior covariance")
+plt_mean, plt_cov = calibration_plots(sample_fun, input_data, times_vec, times_unique, mean_data, cov_data)
 plot(plt_mean, plt_cov)
 savefig("plots/predictive_checks_fitted_rates.pdf")
 
 # prior/posterior check
-p_μ = histogram(vec(chain["ic[1]"]),normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
-plot!(p_μ, 1000:5:2500,pdf(init_priors[1] ,1000:5:2500),label = "Prior")
-
-p_p = histogram(vec(chain["ic[2]"]),normalize=:pdf,xlabel="p",label="Posterior", grid=false)
-plot!(p_p, 0:0.0001:0.015,pdf(init_priors[2],0:0.0001:0.015),label = "Prior")
-
-
-
-p_w1 = histogram(vec(chain["rate_params[1]"]),normalize=:pdf,xlabel="w1",label="Posterior", grid=false)
-plot!(p_w1, 0:0.01:9,pdf(rate_priors[1],0:0.01:9),label = "Prior")
-
-p_w2 = histogram(vec(chain["rate_params[2]"]),normalize=:pdf,xlabel="w2",label="Posterior", grid=false)    
-plot!(p_w2, 0:0.01:3,pdf(rate_priors[2],0:0.01:3),label = "Prior")
-
-p_w3 = histogram(vec(chain["rate_params[3]"]),normalize=:pdf,xlabel="w3",label="Posterior", grid=false)
-plot!(p_w3, 0:0.01:2,pdf(rate_priors[3],0:0.01:2),label = "Prior")
-
-p_θ12 = histogram(vec(chain["rate_params[4]"]),normalize=:pdf,xlabel="θ12",label="Posterior", grid=false)
-plot!(p_θ12, 0:0.01:1,pdf(rate_priors[4],0:0.01:1),label = "Prior")
-
-p = plot_π_posterior(chain,π_priors)
-
-plot(p...,p_μ,p_p,p_w1,p_w2,p_w3,p_θ12, layout = (3,3), size=(1000,400),
-    margin = 4mm)
-
-
+param_plots = plot_param_posteriors(chain,
+    ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]", "rate_params[4]"],
+    [init_priors..., rate_priors...],
+    [1000:5:2500, 0:0.0001:0.015, 0:0.01:9, 0:0.01:3, 0:0.01:2, 0:0.01:1],
+    ["μ", "p", "w1", "w2", "w3", "θ12"])
+p_π = plot_π_posterior(chain, π_priors)
+plot(p_π..., param_plots..., layout=(3,3), size=(1000,400), margin=4mm)
 savefig("plots/Faddy_model_fitted_params.pdf")
 
-
-#[rand(Exponential(t)) for t in chain_df.w2]
-# Make a plot for presentation
-p_w2 = histogram(vec(chain["rate_params[2]"]),normalize=:pdf,xlabel="Avg time as Primary",label="Posterior", grid=false)    
-plot!(p_w2, 0:0.01:3,pdf(rate_priors[2],0:0.01:3),label = "Prior",ylabel="Density")
-
-p_w3 = histogram(vec(chain["rate_params[3]"]),normalize=:pdf,xlabel="Avg time as Secondary",label="Posterior", grid=false)
-plot!(p_w3, 0:0.01:2,pdf(rate_priors[3],0:0.01:2),label = "Prior",ylabel="Density")
-
-p_θ12 = histogram(vec(chain["rate_params[4]"]),normalize=:pdf,xlabel="Probability of reaching primary",label="Posterior", grid=false)
-plot!(p_θ12, 0:0.01:1,pdf(rate_priors[4],0:0.01:1),label = "Prior",ylabel="Density")
-
-plot(p_w2,p_w3,p_θ12, layout = (1,3), size=(1000,300),
-    margin = 5mm)
+# Presentation-quality parameter plots
+pres_plots = plot_param_posteriors(chain,
+    ["rate_params[2]", "rate_params[3]", "rate_params[4]"],
+    rate_priors[2:4],
+    [0:0.01:3, 0:0.01:2, 0:0.01:1],
+    ["Avg time as Primary", "Avg time as Secondary", "Probability of reaching primary"];
+    ylabel="Density")
+plot(pres_plots..., layout=(1,3), size=(1000,300), margin=5mm)
 savefig("plots/PosteriorPredsFaddy.pdf")
