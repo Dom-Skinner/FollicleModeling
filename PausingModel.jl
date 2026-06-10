@@ -1,4 +1,5 @@
 using Plots
+using AugmentedGPLikelihoods
 using StatsPlots
 using Measures
 using Random
@@ -8,12 +9,8 @@ include("Models.jl")
 include("Utils.jl")
 include("PlotUtils.jl")
 
-counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month = extract_data()
-input_data = Float64.(vcat(counts_4_month,counts_6_month,counts_9_month,counts_12_month))
-input_times = vcat(4*ones(size(counts_4_month,1)),6*ones(size(counts_6_month,1)),9*ones(size(counts_9_month,1)),12*ones(size(counts_12_month,1)))
-
-times_unique = unique(input_times)
-times_vec = [findfirst(isequal(t), times_unique) for t in input_times]
+(; counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month,
+   input_data, times_unique, times_vec) = load_training_data()
 
 
 θ_fixed = [0.0043, 0.0017, 0.043, 0.057]*30.4 # fixed values from Faddy converted into 1/month
@@ -22,27 +19,106 @@ w2_fixed = 1/θ_fixed[3]
 w3_fixed = 1/θ_fixed[4]
 θ12_fixed = θ_fixed[1]/(θ_fixed[1] + θ_fixed[2])
 
+
+# ============================================================
+# Priors shared across both fitting steps
+# ============================================================
+
+init_priors = [LogNormal(params_logn(1750,35_000)...),
+                Truncated(Beta(3, 750), 1e-8, Inf)]
+
+# 7-element rate prior for [w1, w2, w3, θ12, θ34, θ6, θ7]
+rate_priors_paused = [
+    LogNormal(params_logn(w1_fixed,3.0)...),
+    LogNormal(params_logn(w2_fixed,0.02)...),
+    LogNormal(params_logn(w3_fixed,0.02)...),
+    Beta(4,4),        # θ12
+    Beta(4,4),        # θ34
+    Gamma(2.0, 0.3),  # θ6: resume rate for paused primary
+    Gamma(2.0, 0.3),  # θ7: resume rate for paused secondary
+]
+
+# coarse-graining matrix: maps 5 non-absorbing states to 3 observed categories
+# [Primordial | Primary-active + Primary-paused | Secondary-active + Secondary-paused]
+coarse_grain_paused = Float64[1 0 0 0 0;
+                               0 1 1 0 0;
+                               0 0 0 1 1]
+
+# wrapper so total_model can call transition_matrix_paused with semantic params
+function transition_matrix_paused_semantic(params)
+    w1, w2, w3, θ12, θ34, θ6, θ7 = params
+    return transition_matrix_paused([θ12/w1, (1-θ12)/w1, θ34/w2, (1-θ34)/w2, 1/w3, θ6, θ7])
+end
+
+# priors for the full pausing_model fit (uses named Dict interface)
 in_priors = Dict(
-    "μ" => LogNormal(params_logn(1750,35_000)...), 
-    "p" => Beta(3, 750), 
+    "μ" => LogNormal(params_logn(1750,35_000)...),
+    "p" => Beta(3, 750),
     "π_vals" => Dirichlet(ones(5)),
-    "w1" => LogNormal(params_logn(w1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
+    "w1" => LogNormal(params_logn(w1_fixed,3.0)...),
     "w2" => LogNormal(params_logn(w2_fixed,0.02)...),
     "w3" => LogNormal(params_logn(w3_fixed,0.02)...),
     "θ12" => Beta(4,4),
     "θ34" => Beta(4,4),
-    "θ6" => Gamma(2.0, 0.3), 
+    "θ6" => Gamma(2.0, 0.3),
     "θ7" => Gamma(2.0, 0.3),
 )
 
 
-# Fit the model
+# ============================================================
+# Step 1: Fit initial conditions only (prior predictive for dynamics)
+# ============================================================
+# Passing empty observations/times mirrors the fixed-rate step in FaddyModel.jl:
+# rates are drawn from their priors but not informed by the 4-12 month data.
+
+@time prior_chain = sample(total_model(counts_2_month, [],[],[],
+    init_priors, Dirichlet(ones(5)), rate_priors_paused,
+    transition_matrix_paused_semantic, coarse_grain_paused),
+    NUTS(), MCMCThreads(), 1000, 2);
+
+N_samples = 400
+t_vals = 2:0.25:12
+
+# aggregate 5-state sample_model output to the 3 observed categories
+sample_fun_prior = t -> begin
+    c = sample_model(prior_chain, t, transition_matrix_paused_semantic)
+    [c[1], c[2]+c[3], c[4]+c[5]]
+end
+
+q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
+quantiles_N0 = stack([confidence_intervals(t->sample_fun_prior(t)[1],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
+quantiles_N1 = stack([confidence_intervals(t->sample_fun_prior(t)[2],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
+quantiles_N2 = stack([confidence_intervals(t->sample_fun_prior(t)[3],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
+quantiles = stack([quantiles_N0,quantiles_N1,quantiles_N2])
+
+p_arr = [plot(grid=false) for _ in 1:3]
+nbands = (size(quantiles, 1)-1) >> 1
+for i = 1:length(p_arr), j = 1:nbands
+    plot!(p_arr[i],t_vals,quantiles[nbands+1,:,i],ribbon=(quantiles[nbands+1,:,i] .- quantiles[nbands+1-j,:,i], quantiles[nbands+j+1,:,i] .- quantiles[nbands+1,:,i]),fillalpha=0.2,fc=:blue,lc=:black)
+end
+plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
+
+plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
+savefig("plots/Pausing_model_fixed_rates.pdf")
+
+mean_data,cov_data = empirical_stats(input_data,times_vec)
+
+mean_quantiles_prior, cov_quantiles_prior = chain_stats_sample(sample_fun_prior, input_data, times_vec, times_unique;
+    N=5000, probs=[0.025, 0.5, 0.975])
+plt_mean_prior, plt_cov_prior = plot_empirical_stats(mean_data, cov_data, mean_quantiles_prior,
+    cov_quantiles_prior; ylabel_mean="Prior mean", ylabel_cov="Prior covariance")
+plot(plt_mean_prior, plt_cov_prior)
+savefig("plots/pausing_predictive_checks_fixed_rates.pdf")
+
+
+# ============================================================
+# Step 2: Full fit (rates + initial conditions)
+# ============================================================
 
 @time chain = sample(pausing_model(sum(counts_2_month,dims=2),counts_2_month, input_data, times_vec,
     times_unique,in_priors),NUTS(),  MCMCThreads(),2000,2);
 
-
-# Plot credible intervals for the model
+# Posterior predictive credible interval ribbons
 
 N_samples = 20_000
 t_vals = 2:0.5:12
@@ -51,7 +127,6 @@ quantiles_N0 = stack([confidence_intervals(t->sample_model_paused(chain_df,t)[1]
 quantiles_N1 = stack([confidence_intervals(t->sum(sample_model_paused(chain_df,t)[2:3]),t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
 quantiles_N2 = stack([confidence_intervals(t->sum(sample_model_paused(chain_df,t)[4:5]),t,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975],N_samples=N_samples) for t in t_vals])
 quantiles = stack([quantiles_N0,quantiles_N1,quantiles_N2])
-
 
 p_arr = [plot(grid=false) for _ in 1:3]
 nbands = (size(quantiles, 1)-1) >> 1
@@ -63,30 +138,27 @@ plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_mo
 plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
 savefig("plots/Pausing_model_fitted_rates.pdf")
 
-# Compare posterior statistics
-mean_data,cov_data = empirical_stats(input_data,times_vec)
+# Posterior predictive calibration (mean and covariance)
 hidden_states = x -> [x[1], x[2] + x[3], x[4] + x[5]]
-sample_fun  = t-> hidden_states(sample_model_exact_paused(chain_df,t))
-mean_quantiles, cov_quantiles = chain_stats_sample(sample_fun, input_data, times_vec, times_unique; 
-                                  N=5000, probs=[0.25, 0.5, 0.75])
+sample_fun = t -> hidden_states(sample_model_exact_paused(chain_df,t))
+mean_quantiles, cov_quantiles = chain_stats_sample(sample_fun, input_data, times_vec, times_unique;
+                                  N=5000, probs=[0.025, 0.5, 0.975])
 plt_mean, plt_cov = plot_empirical_stats(mean_data, cov_data, mean_quantiles,
     cov_quantiles; ylabel_mean="Posterior mean", ylabel_cov="Posterior covariance")
 plot(plt_mean, plt_cov)
 savefig("plots/pausing_predictive_checks_fitted_rates.pdf")
 
-# prior/posterior check for parameters
-
+# Prior/posterior comparison for each parameter
 p_μ = histogram(chain_df.μ,normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
 plot!(p_μ, 1000:5:2500,pdf(in_priors["μ"] ,1000:5:2500),label = "Prior")
 
 p_p = histogram(chain_df.p,normalize=:pdf,xlabel="p",label="Posterior", grid=false)
 plot!(p_p, 0:0.0001:0.015,pdf(in_priors["p"],0:0.0001:0.015),label = "Prior")
 
-
 p_w1 = histogram(chain_df.w1,normalize=:pdf,xlabel="w1",label="Posterior", grid=false)
 plot!(p_w1, 0:0.01:9,pdf(in_priors["w1"],0:0.01:9),label = "Prior")
 
-p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="w2",label="Posterior", grid=false)    
+p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="w2",label="Posterior", grid=false)
 plot!(p_w2, 0:0.01:3,pdf(in_priors["w2"],0:0.01:3),label = "Prior")
 
 p_w3 = histogram(chain_df.w3,normalize=:pdf,xlabel="w3",label="Posterior", grid=false)
@@ -104,14 +176,14 @@ plot!(p_θ6, 0:0.01:1,pdf(in_priors["θ6"],0:0.01:1),label = "Prior")
 p_θ7 = histogram(chain_df.θ7,normalize=:pdf,xlabel="θ7",label="Posterior", grid=false)
 plot!(p_θ7, 0:0.01:1,pdf(in_priors["θ7"],0:0.01:1),label = "Prior")
 
-p = plot_π_posterior(chain,in_priors)
-plot(p...,p_μ,p_p,p_w1,p_w2,p_w3,p_θ12,p_θ34,p_θ6,p_θ7, layout = (4,4), size=(1000,600),
+p_π = plot_π_posterior(chain, in_priors["π_vals"])
+plot(p_π...,p_μ,p_p,p_w1,p_w2,p_w3,p_θ12,p_θ34,p_θ6,p_θ7, layout = (4,4), size=(1000,600),
     margin = 4mm)
 savefig("plots/pausing_model_prior_posterior.pdf")
 
 
-# Make a plot for presentation
-p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="Avg time as Primary (months)",label="Posterior", grid=false)    
+# Presentation-quality parameter plots
+p_w2 = histogram(chain_df.w2,normalize=:pdf,xlabel="Avg time as Primary (months)",label="Posterior", grid=false)
 plot!(p_w2, 0:0.01:3,pdf(in_priors["w2"],0:0.01:3),label = "Prior",ylabel="Density")
 
 p_w3 = histogram(chain_df.w3,normalize=:pdf,xlabel="Avg time as Secondary (months)",label="Posterior", grid=false)

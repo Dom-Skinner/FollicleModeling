@@ -9,12 +9,8 @@ include("Models.jl")
 include("Utils.jl")
 include("PlotUtils.jl")
 
-counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month = extract_data()
-input_data = Float64.(vcat(counts_4_month,counts_6_month,counts_9_month,counts_12_month))
-input_times = vcat(4*ones(size(counts_4_month,1)),6*ones(size(counts_6_month,1)),9*ones(size(counts_9_month,1)),12*ones(size(counts_12_month,1)))
-
-times_unique = unique(input_times)
-times_vec = [findfirst(isequal(t), times_unique) for t in input_times]
+(; counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month,
+   input_data, times_unique, times_vec) = load_training_data()
 
 
 θ_fixed = [0.0043, 0.0017, 0.043, 0.057]*30.4 # fixed values from Faddy converted into 1/month
@@ -24,7 +20,7 @@ w3_fixed = 1/θ_fixed[4]
 θ12_fixed = θ_fixed[1]/(θ_fixed[1] + θ_fixed[2])
 
 
-innit_priors = [LogNormal(params_logn(1750,35_000)...),
+init_priors = [LogNormal(params_logn(1750,35_000)...),
                 Truncated(Beta(3, 750), 1e-8,Inf)]
 π_priors = Dirichlet(ones(3))
 
@@ -51,7 +47,7 @@ end
 
 ################ First we fit with fixed rates, i.e. initial conditions only
 @time faddy_chain = sample(total_model(counts_2_month, [],[],[],
-    innit_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),1000,2);
+    init_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),1000,2);
 #jldsave("models/FaddyModel_fixed.jld2"; faddy_chain)
 
 
@@ -92,7 +88,7 @@ savefig("plots/predictive_checks_fixed_rates.pdf")
     
 
 @time chain = sample(total_model(counts_2_month, Int64.(input_data), times_vec,
-    times_unique,innit_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),300,2);
+    times_unique,init_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),300,2);
 
     
 sample_fun = t -> sample_model(chain,t, transition_matrix_faddy)
@@ -124,11 +120,11 @@ plot(plt_mean, plt_cov)
 savefig("plots/predictive_checks_fitted_rates.pdf")
 
 # prior/posterior check
-p_μ = histogram(vec(chain["inpriors[1]"]),normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
-plot!(p_μ, 1000:5:2500,pdf(innit_priors[1] ,1000:5:2500),label = "Prior")
+p_μ = histogram(vec(chain["ic[1]"]),normalize=:pdf,xlabel="μ",label="Posterior", grid=false)
+plot!(p_μ, 1000:5:2500,pdf(init_priors[1] ,1000:5:2500),label = "Prior")
 
-p_p = histogram(vec(chain["inpriors[2]"]),normalize=:pdf,xlabel="p",label="Posterior", grid=false)
-plot!(p_p, 0:0.0001:0.015,pdf(innit_priors[2],0:0.0001:0.015),label = "Prior")
+p_p = histogram(vec(chain["ic[2]"]),normalize=:pdf,xlabel="p",label="Posterior", grid=false)
+plot!(p_p, 0:0.0001:0.015,pdf(init_priors[2],0:0.0001:0.015),label = "Prior")
 
 
 

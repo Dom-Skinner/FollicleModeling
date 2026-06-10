@@ -42,14 +42,14 @@ end
 
 
 
-@model function total_model(initial_values,observations,times,times_unique,innit_priors,π_priors, rate_priors,
+@model function total_model(initial_values,observations,times,times_unique,init_priors,π_priors, rate_priors,
         transition_matrix_fcn, coarse_grain_arr)
 
-    
+
     # Combined model
-    inpriors ~ arraydist(innit_priors)
-    μ  = inpriors[1]
-    p  = inpriors[2]
+    ic ~ arraydist(init_priors)
+    μ  = ic[1]
+    p  = ic[2]
     r  = p*μ / (1-p)
     b = p/(1-p)
 
@@ -95,9 +95,9 @@ end
 
 function sample_model(chain,t, transition_matrix_fcn)
     samp = rand_draw(chain)
-    inpriors = extract_array(samp, "inpriors")
-    μ  = inpriors[1]
-    p  = inpriors[2]
+    ic = extract_array(samp, "ic")
+    μ  = ic[1]
+    p  = ic[2]
     r  = p*μ / (1-p)
     b = p/(1-p)
 

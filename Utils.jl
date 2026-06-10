@@ -94,6 +94,17 @@ function extract_data()
     return counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month
 end
 
+function load_training_data()
+    counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month = extract_data()
+    input_data = Float64.(vcat(counts_4_month, counts_6_month, counts_9_month, counts_12_month))
+    input_times = vcat(4*ones(size(counts_4_month,1)), 6*ones(size(counts_6_month,1)),
+                       9*ones(size(counts_9_month,1)), 12*ones(size(counts_12_month,1)))
+    times_unique = unique(input_times)
+    times_vec = [findfirst(isequal(t), times_unique) for t in input_times]
+    return (; counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month,
+              input_data, times_unique, times_vec)
+end
+
 
 
 function confidence_intervals(f,t;N_samples=1000,q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975])
