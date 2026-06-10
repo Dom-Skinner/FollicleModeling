@@ -1,6 +1,7 @@
 # This file contains useful functions that are reused in multiple places
 using DataFrames,CSV
-using Turing 
+using Turing
+using LinearAlgebra
 
 
 function params_logn(m,v)
@@ -58,27 +59,26 @@ end
 
 
 
-function transition_matrix_unpaused(θ)
-    return [
-        -(θ[1]+θ[2])    0.0      0.0       0.0  
-        θ[1]     -(θ[3]+θ[4])      0.0       0.0
-        0.0         θ[4]       -θ[5]      0.0
-        θ[2]          θ[3]       θ[5]       0.0
-    ]
-end
+# Legacy transition matrices — not used in current analysis scripts; kept for reference.
+# function transition_matrix_unpaused(θ)
+#     return [
+#         -(θ[1]+θ[2])    0.0      0.0       0.0
+#         θ[1]     -(θ[3]+θ[4])      0.0       0.0
+#         0.0         θ[4]       -θ[5]      0.0
+#         θ[2]          θ[3]       θ[5]       0.0
+#     ]
+# end
 
-
-
-function transition_matrix_unpaused_v2(θ)
-    return [
-    -(θ[1]+θ[2])     0.0         0.0             0.0       0.0    0.0
-        θ[1]     -(θ[3]+θ[4])    0.0             0.0       0.0    0.0
-        0.0          θ[3]     -(θ[5] + θ[6])     0.0       0.0    0.0
-        0.0          0.0         θ[5]       -(θ[7]+θ[8])   0.0    0.0
-        0.0          0.0         0.0             θ[7]     -θ[9]   0.0
-        θ[2]         θ[4]        θ[6]            θ[8]      θ[9]   0.0
-    ]
-end
+# function transition_matrix_unpaused_v2(θ)
+#     return [
+#     -(θ[1]+θ[2])     0.0         0.0             0.0       0.0    0.0
+#         θ[1]     -(θ[3]+θ[4])    0.0             0.0       0.0    0.0
+#         0.0          θ[3]     -(θ[5] + θ[6])     0.0       0.0    0.0
+#         0.0          0.0         θ[5]       -(θ[7]+θ[8])   0.0    0.0
+#         0.0          0.0         0.0             θ[7]     -θ[9]   0.0
+#         θ[2]         θ[4]        θ[6]            θ[8]      θ[9]   0.0
+#     ]
+# end
 
 function extract_data()
     file = "data/WT C57B6 mouse oocyte counts for Dominic.xlsx - Aging WM Tracker.csv"
@@ -111,6 +111,24 @@ function confidence_intervals(f,t;N_samples=1000,q_levels = [0.025,0.1, 0.25,0.5
     # find confidence intervals for any function f of the samples at some time t
     Sample_arr =  [f(t) for i in 1:N_samples]
     return quantile(Sample_arr, q_levels)
+end
+
+# Returns t -> coarse_grain * sample_model(chain, t, transition_matrix_fcn).
+# Pass coarse_grain=coarse_grain_paused (3×5) for models with hidden sub-states;
+# default I leaves the output unchanged for fully-observed models.
+function make_sample_fun(chain, transition_matrix_fcn; coarse_grain=I)
+    return t -> coarse_grain * sample_model(chain, t, transition_matrix_fcn)
+end
+
+# Computes a (n_q_levels × n_t × n_obs) quantile array suitable for credible_ribbon_plots.
+# n_obs is inferred by calling sample_fun once.
+function compute_quantiles(sample_fun, t_vals; N_samples=1000,
+                           q_levels=[0.025, 0.1, 0.25, 0.5, 0.75, 0.9, 0.975])
+    n_obs = length(sample_fun(first(t_vals)))
+    return stack([stack([confidence_intervals(t -> sample_fun(t)[k], t;
+                                              q_levels=q_levels, N_samples=N_samples)
+                         for t in t_vals])
+                  for k in 1:n_obs])
 end
 
 

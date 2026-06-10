@@ -54,18 +54,11 @@ end
 N_samples = 40_0
 t_vals = 2:0.25:12
 
-sample_fun = t -> sample_model(faddy_chain,t, transition_matrix_faddy)
+sample_fun = make_sample_fun(faddy_chain, transition_matrix_faddy)
 q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
-quantiles_N0 = stack([confidence_intervals(t->sample_fun(t)[1],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
-quantiles_N1 = stack([confidence_intervals(t->sample_fun(t)[2],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
-quantiles_N2 = stack([confidence_intervals(t->sample_fun(t)[3],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
-quantiles = stack([quantiles_N0,quantiles_N1,quantiles_N2])
+quantiles = compute_quantiles(sample_fun, t_vals; N_samples, q_levels)
 
-p_arr = [plot(grid=false) for _ in 1:3]
-nbands = (size(quantiles, 1)-1) >> 1
-for i = 1:length(p_arr), j = 1:nbands
-    plot!(p_arr[i],t_vals,quantiles[nbands+1,:,i],ribbon=(quantiles[nbands+1,:,i] .- quantiles[nbands+1-j,:,i], quantiles[nbands+j+1,:,i] .- quantiles[nbands+1,:,i]),fillalpha=0.2,fc=:blue,lc=:black)
-end
+p_arr = credible_ribbon_plots(quantiles, t_vals)
 plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
 
 plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
@@ -91,21 +84,14 @@ savefig("plots/predictive_checks_fixed_rates.pdf")
     times_unique,init_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),300,2);
 
     
-sample_fun = t -> sample_model(chain,t, transition_matrix_faddy)
+sample_fun = make_sample_fun(chain, transition_matrix_faddy)
 
 N_samples = 20_0
 t_vals = 2:0.5:12
 q_levels = [0.025,0.1, 0.25,0.5,0.75, 0.9, 0.975]
-quantiles_N0 = stack([confidence_intervals(t->sample_fun(t)[1],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
-quantiles_N1 = stack([confidence_intervals(t->sample_fun(t)[2],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
-quantiles_N2 = stack([confidence_intervals(t->sample_fun(t)[3],t,q_levels=q_levels, N_samples=N_samples) for t in t_vals])
-quantiles = stack([quantiles_N0,quantiles_N1,quantiles_N2])
+quantiles = compute_quantiles(sample_fun, t_vals; N_samples, q_levels)
 
-p_arr = [plot(grid=false) for _ in 1:3]
-nbands = (size(quantiles, 1)-1) >> 1
-for i = 1:length(p_arr), j = 1:nbands
-    plot!(p_arr[i],t_vals,quantiles[nbands+1,:,i],ribbon=(quantiles[nbands+1,:,i] .- quantiles[nbands+1-j,:,i], quantiles[nbands+j+1,:,i] .- quantiles[nbands+1,:,i]),fillalpha=0.2,fc=:blue,lc=:black)
-end
+p_arr = credible_ribbon_plots(quantiles, t_vals)
 plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
 
 plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)

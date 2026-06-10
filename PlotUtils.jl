@@ -2,6 +2,22 @@ using Plots
 using StatsPlots
 
 
+# Returns an array of n_obs initialized plots, each with nested credible ribbon bands.
+# quantiles is (n_q_levels × n_t × n_obs); t_vals is the matching time grid.
+function credible_ribbon_plots(quantiles, t_vals)
+    n_obs = size(quantiles, 3)
+    p_arr = [plot(grid=false) for _ in 1:n_obs]
+    nbands = (size(quantiles, 1)-1) >> 1
+    for i in 1:n_obs, j in 1:nbands
+        plot!(p_arr[i], t_vals, quantiles[nbands+1,:,i],
+              ribbon=(quantiles[nbands+1,:,i] .- quantiles[nbands+1-j,:,i],
+                      quantiles[nbands+j+1,:,i] .- quantiles[nbands+1,:,i]),
+              fillalpha=0.2, fc=:blue, lc=:black)
+    end
+    return p_arr
+end
+
+
 function plot_exp_data!(p1,p2,p3,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
 
     plot!(p1, 2*ones(size(counts_2_month,1)), counts_2_month[:,1], seriestype = :scatter, 
