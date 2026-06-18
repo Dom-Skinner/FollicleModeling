@@ -116,3 +116,19 @@ pres_plots = plot_param_posteriors(chain,
     ylabel="Density")
 plot(pres_plots..., layout=(1,3), size=(1000,300), margin=5mm)
 savefig("plots/PosteriorPredsFaddy.pdf")
+
+# ===== Conditional residence-time distributions =====
+# Posterior-predictive distribution of the time a follicle spends in Primary /
+# Secondary GIVEN it successfully progresses out (rather than dying). In the
+# Faddy model there is no death from Primary/Secondary, so every transition is a
+# success and these are simple exponentials. Integrates over posterior uncertainty.
+primary_times   = posterior_sojourn_times(chain, transition_matrix_faddy, coarse_grain_arr, 2; N=50_000)
+secondary_times = posterior_sojourn_times(chain, transition_matrix_faddy, coarse_grain_arr, 3; N=50_000)
+
+p_soj = density(primary_times, label="Primary", lw=2, fill=(0,0.15), grid=false,
+                xlabel="Time spent in compartment (months)", ylabel="Density")
+density!(p_soj, secondary_times, label="Secondary", lw=2, fill=(0,0.15),xlims=(0,5))
+vline!(p_soj, [mean(primary_times)],   ls=:dash, lc=1, label="")
+vline!(p_soj, [mean(secondary_times)], ls=:dash, lc=2, label="")
+plot(p_soj, size=(600,400), margin=4mm)
+savefig("plots/Faddy_conditional_sojourn_times.pdf")

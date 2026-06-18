@@ -16,7 +16,7 @@ include("PlotUtils.jl")
 # ===== Erlang shapes per observed compartment [Primordial, Primary, Secondary] =====
 # k = [1,1,1] recovers the exponential (Faddy-style) model; larger k gives a more
 # clock-like (less dispersed) maturation time (CV = 1/√k). Swap freely to compare.
-k = [1, 2, 2]
+k = [1, 3, 3]
 (; transition_fcn, coarse_grain, n_hidden) = build_queuing_model(k)
 
 
@@ -101,3 +101,19 @@ param_plots = plot_param_posteriors(chain,
 p_π = plot_π_posterior(chain, π_priors)
 plot(p_π..., param_plots..., size=(1400,800), margin=4mm)
 savefig("plots/Queuing_model_fitted_params.pdf")
+
+# ===== Conditional residence-time distributions =====
+# Posterior-predictive distribution of the time a follicle spends in Primary /
+# Secondary GIVEN it successfully progresses out (rather than dying). For the
+# Secondary (final) compartment, every exit is treated as a successful graduation.
+# This integrates over posterior uncertainty in the rate parameters.
+primary_times   = posterior_sojourn_times(chain, transition_fcn, coarse_grain, 2; N=50_000)
+secondary_times = posterior_sojourn_times(chain, transition_fcn, coarse_grain, 3; N=50_000)
+
+p_soj = density(primary_times, label="Primary", lw=2, fill=(0,0.15), grid=false,
+                xlabel="Time spent in compartment (months)", ylabel="Density")
+density!(p_soj, secondary_times, label="Secondary", lw=2, fill=(0,0.15))
+vline!(p_soj, [mean(primary_times)],   ls=:dash, lc=1, label="")
+vline!(p_soj, [mean(secondary_times)], ls=:dash, lc=2, label="")
+plot(p_soj, size=(600,400), margin=4mm)
+savefig("plots/Queuing_conditional_sojourn_times.pdf")

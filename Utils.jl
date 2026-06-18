@@ -11,39 +11,6 @@ function params_logn(m,v)
     return μ_ln, σ_ln
 end
 
-function multinomial_approx_inv(X, π_vals)
-    #https://aloneinthefart.blogspot.com/2012/09/normal-approximation-of-multinomial.html
-    N = sum(X)
-    π_safe = max.(π_vals, 1e-3)
-    v = NaNMath.sqrt.(π_safe) 
-    v[end] -= 1.0
-    v = v/norm(v)
-    Q = I(length(π_safe)) - 2*v *v'
-
-    Z = Q[1:end-1,:] * (X ./NaNMath.sqrt.(N*π_safe) .- NaNMath.sqrt.(N*π_safe))
-    
-    if any(isnan.(Z)) || any(isinf.(Z))
-        return 1000*ones(size(Z)) # i.e. very unlikely
-    else
-        return Z
-    end
-end
-
-
-function multinomial_approx(N, π_vals,z_vec)
-    #https://aloneinthefart.blogspot.com/2012/09/normal-approximation-of-multinomial.html
-    π_safe = max.(π_vals, 1e-3)
-    v = NaNMath.sqrt.(π_safe) 
-    v[end] -= 1.0
-    v = v/norm(v)
-    Q = I(length(π_safe)) - 2*v *v'
-    z = N*π_vals .+ NaNMath.sqrt.(N*π_safe).*(Q[:,1:end-1]*z_vec)
-    if any(isnan.(z))
-        return N*π_vals
-    else
-        return z
-    end
-end
 
 function rand_draw(chain::Chains)
     df = DataFrame(chain)
@@ -57,28 +24,6 @@ function rand_draw(df::DataFrame)
     return NamedTuple(row)                    # e.g. (r=…, p=…, π1=…, …)
 end
 
-
-
-# Legacy transition matrices — not used in current analysis scripts; kept for reference.
-# function transition_matrix_unpaused(θ)
-#     return [
-#         -(θ[1]+θ[2])    0.0      0.0       0.0
-#         θ[1]     -(θ[3]+θ[4])      0.0       0.0
-#         0.0         θ[4]       -θ[5]      0.0
-#         θ[2]          θ[3]       θ[5]       0.0
-#     ]
-# end
-
-# function transition_matrix_unpaused_v2(θ)
-#     return [
-#     -(θ[1]+θ[2])     0.0         0.0             0.0       0.0    0.0
-#         θ[1]     -(θ[3]+θ[4])    0.0             0.0       0.0    0.0
-#         0.0          θ[3]     -(θ[5] + θ[6])     0.0       0.0    0.0
-#         0.0          0.0         θ[5]       -(θ[7]+θ[8])   0.0    0.0
-#         0.0          0.0         0.0             θ[7]     -θ[9]   0.0
-#         θ[2]         θ[4]        θ[6]            θ[8]      θ[9]   0.0
-#     ]
-# end
 
 function extract_data()
     file = "data/WT C57B6 mouse oocyte counts for Dominic.xlsx - Aging WM Tracker.csv"
@@ -129,6 +74,68 @@ function compute_quantiles(sample_fun, t_vals; N_samples=1000,
                                               q_levels=q_levels, N_samples=N_samples)
                          for t in t_vals])
                   for k in 1:n_obs])
+end
+
+
+# ---- Conditional sojourn-time analysis ---------------------------------------
+
+# Simulate one CTMC trajectory (Gillespie) through observed compartment `c`,
+# starting in the first hidden substate of `c`, using generator `W`
+# (column = source, row = destination) and the `coarse_grain` map that assigns
+# each hidden substate to an observed compartment. Returns (t, exit_comp) where
+# `t` is the time spent in compartment `c` and `exit_comp` is the observed
+# compartment the follicle moved to on leaving (0 = unobserved/dead bin).
+#
+# `count_states` selects which hidden states' holding time is accumulated into
+# `t` (default: all substates of compartment `c`). Pass a subset to time only
+# part of a compartment — e.g. the *active* states of the Pausing model, so that
+# time spent paused is excluded while the trajectory still passes through it.
+function simulate_compartment_time(W, coarse_grain, c; count_states=nothing)
+    n        = size(W, 1)
+    n_hidden = size(coarse_grain, 2)
+    comp = zeros(Int, n)                       # hidden state -> observed compartment
+    for j in 1:n_hidden
+        comp[j] = findfirst(>(0), coarse_grain[:, j])
+    end                                        # comp[n] stays 0 (dead/unobserved)
+    counted = isnothing(count_states) ? Set(findall(==(c), comp)) : Set(count_states)
+
+    state = findfirst(==(c), comp)             # first substate of compartment c
+    t = 0.0
+    while comp[state] == c
+        rate = -W[state, state]
+        τ = -log(rand()) / rate                # holding time ~ Exp(rate)
+        state in counted && (t += τ)           # only accumulate time in counted states
+        u = rand() * rate                      # pick destination ∝ W[:,state]
+        cum = 0.0
+        for j in 1:n
+            j == state && continue
+            cum += W[j, state]
+            if u <= cum
+                state = j
+                break
+            end
+        end
+    end
+    return t, comp[state]
+end
+
+# Posterior-predictive distribution of the time spent in observed compartment `c`,
+# conditional on the follicle successfully progressing out of it (to the next
+# compartment, or — for the final observed compartment — graduating to the
+# unobserved growing bin). Draws posterior parameter samples and simulates one
+# trajectory per draw, integrating over posterior uncertainty. `count_states` is
+# forwarded to `simulate_compartment_time` (e.g. active-only states for Pausing).
+function posterior_sojourn_times(chain, transition_fcn, coarse_grain, c; N=10_000, count_states=nothing)
+    C = size(coarse_grain, 1)
+    times = Float64[]
+    while length(times) < N
+        rate_params = extract_array(rand_draw(chain), "rate_params")
+        W = transition_fcn(rate_params)
+        t, exit_comp = simulate_compartment_time(W, coarse_grain, c; count_states=count_states)
+        success = (exit_comp == c + 1) || (c == C)   # graduating from last compartment = success
+        success && push!(times, t)
+    end
+    return times
 end
 
 

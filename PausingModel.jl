@@ -138,3 +138,23 @@ pres_plots = plot_param_posteriors(chain,
     ylabel="Density")
 plot(pres_plots..., layout=(1,4), size=(1000,300), margin=6mm, xguidefontsize=8, guidefontsize=8)
 savefig("plots/PosteriorPredsPaused.pdf")
+
+# ===== Conditional residence-time distributions (active time only) =====
+# Posterior-predictive distribution of the time a follicle spends in the ACTIVE
+# Primary / Secondary state GIVEN it successfully progresses out, EXCLUDING any
+# time spent paused. State layout: 1=Primordial, 2=Primary-active,
+# 3=Primary-paused, 4=Secondary-active, 5=Secondary-paused, 6=Dead — so we count
+# only states 2 and 4. The trajectory still passes through the paused states;
+# their holding time is simply not accumulated.
+primary_times   = posterior_sojourn_times(chain, transition_matrix_paused, coarse_grain_paused, 2;
+                                           N=50_000, count_states=[2])
+secondary_times = posterior_sojourn_times(chain, transition_matrix_paused, coarse_grain_paused, 3;
+                                           N=50_000, count_states=[4])
+
+p_soj = density(primary_times, label="Primary (active)", lw=2, fill=(0,0.15), grid=false,
+                xlabel="Active time spent in compartment (months)", ylabel="Density",xlims=(0,5))
+density!(p_soj, secondary_times, label="Secondary (active)", lw=2, fill=(0,0.15))
+vline!(p_soj, [mean(primary_times)],   ls=:dash, lc=1, label="")
+vline!(p_soj, [mean(secondary_times)], ls=:dash, lc=2, label="")
+plot(p_soj, size=(600,400), margin=4mm)
+savefig("plots/Pausing_conditional_sojourn_times.pdf")
