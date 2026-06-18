@@ -130,124 +130,74 @@ end
 
 # ================================ Model with queuing topology ================================
 
+# General Erlang/queuing model built from an integer shape vector `k`.
+#
+# Observed compartment c (1..C) is expanded into `k[c]` exponential substates in
+# series. Death acts uniformly: every substate of compartment c progresses at
+# rate α_c and dies at rate δ_c (see docs/notes.tex). The marginal time to
+# *progress out* of the compartment is Erlang(k[c], α_c).
+#
+# Semantic rate_params = [w_1,…,w_C, θ_1,…,θ_{C-1}]:
+#   w_c : mean residence time in compartment c (total time spent there, whether
+#         the follicle ends up progressing or dying)
+#   θ_c : survival probability through compartment c (progress vs die),
+#         for c < C only.
+# The per-substate rates are chosen so that, with per-substate survival
+# s_c = θ_c^(1/k[c]) and total rate r_c = α_c + δ_c,
+#       (s_c)^{k[c]} = θ_c   and   (1/r_c)·(1 - s_c^{k[c]})/(1 - s_c) = w_c,
+# i.e. r_c = (1 - θ_c)/((1 - s_c)·w_c), α_c = s_c·r_c, δ_c = (1 - s_c)·r_c.
+# This reduces to the exponential case α_c = θ_c/w_c, δ_c = (1-θ_c)/w_c at k=1.
+# The last compartment has no branching parameter: progression and death both
+# flow to the same unobserved bin, so δ_C = 0 and α_C = k[C]/w_C.
+#
+# Returns (; transition_fcn, coarse_grain, n_hidden) for use with `total_model`:
+#   transition_fcn(rate_params) -> (n_hidden+1)×(n_hidden+1) generator W
+#       (column = source, row = destination; final column is the unobserved state)
+#   coarse_grain :: C × n_hidden  sums substates back to observed compartments
+#   n_hidden = sum(k)             length of the Dirichlet over initial states
+function build_queuing_model(k::AbstractVector{<:Integer})
+    C = length(k)
+    n_hidden = sum(k)
+    n = n_hidden + 1                 # + absorbing/unobserved "growing/dead" state
+    dead = n
+    offset = [sum(@view k[1:c-1]) for c in 1:C]   # substates before compartment c
+    idx(c, m) = offset[c] + m
 
-function transition_matrix_queuing(θ)
-    return [
-    -(θ[1]+θ[2])        0.0      0.0      0.0       0.0   0.0
-        θ[1]      -(θ[3]+θ[4])   0.0      0.0       0.0   0.0
-        0.0             θ[3]   -θ[5]      0.0       0.0   0.0
-        0.0             0.0     θ[5]  -(θ[6]+θ[7])  0.0   0.0
-        0.0             0.0      0.0      θ[6]     -θ[8]  0.0
-        θ[2]            θ[4]     0.0      θ[7]      θ[8]  0.0
-    ]
-end
-
-function params_to_rates_queuing(w1,w2,w3,θ12,θ34,θ345,θ678,θ67)
-    θ1 = θ12/w1
-    θ2 = (1-θ12)/w1
-    q = θ345*w2
-    θ5 = 1/ ( 1- θ345) / w2
-    θ3 = θ34/q
-    θ4 = (1-θ34)/q
-    q2 = θ678*w3
-    θ8 = 1/ (1-θ678)/w3
-    θ6 = θ67/q2
-    θ7 = (1-θ67)/q2
-    return [θ1, θ2, θ3, θ4, θ5, θ6, θ7, θ8]
-end
-
-@model function queuing_model(initial_sizes,initial_values,observations,times,times_unique,in_priors)
-
-    
-   # First set up initial conditions at 2 months
-   r ~ in_priors["r"]#LogNormal(2, 0.5) 
-   p ~ in_priors["p"]#Beta(2, 500)
-
-    for i in 1:size(initial_sizes, 1)
-        initial_sizes[i] ~ NegativeBinomial(r,p)  
-    end
-
-
-    π_vals ~ in_priors["π_vals"]
-
-    for i in 1:size(initial_values, 1)    
-        initial_values[i,:] ~ Multinomial(initial_sizes[i], [π_vals[1],π_vals[2]+π_vals[3],π_vals[4] + π_vals[5]])
-    end
-    
-    w1 ~ in_priors["w1"]
-    w2 ~ in_priors["w2"]
-    w3 ~ in_priors["w3"]
-    θ12 ~ in_priors["θ12"]
-    θ34 ~ in_priors["θ34"]
-    θ345 ~ in_priors["θ345"]
-    θ678 ~ in_priors["θ678"]
-    θ67 ~ in_priors["θ67"]
-
-
-
-
-    # Reuse these parameters, but fit separately to remainder of data
-    N ~ filldist(Gamma(r*(1-p),1/p), size(observations, 1))
-
-    W = transition_matrix_queuing(params_to_rates_queuing(w1,w2,w3,θ12,θ34,θ345,θ678,θ67))
-
-    Λ_all = probability_flow(π_vals,W,times_unique)
-
-    for i in 1:length(times)
-        obs_probs = Λ_all[times[i]][1:length(π_vals)]
-        fourth_prob = 1.0 - sum(obs_probs)
-        full_probs = [obs_probs[1],obs_probs[2]+obs_probs[3],obs_probs[4]+obs_probs[5], fourth_prob]
-
-        obs_counts = observations[i,:]
-        unobs_count = N[i] - sum(obs_counts)
-        z_vals  = multinomial_approx_inv(vcat(obs_counts,unobs_count),full_probs)
-        for z in z_vals
-            @assert isfinite(z)
-            Turing.@addlogprob! logpdf(Normal(zero(z[1]), one(z[1])), z)
+    function transition_fcn(rate_params)
+        w = rate_params[1:C]
+        θ = rate_params[C+1:2C-1]
+        T = eltype(rate_params)
+        W = zeros(T, n, n)
+        for c in 1:C
+            if c < C
+                s = θ[c]^(1/k[c])              # per-substate survival probability
+                r = (1 - θ[c]) / ((1 - s) * w[c])   # per-substate total rate α + δ
+                α = s * r
+                δ = (1 - s) * r
+            else                              # last compartment: no death channel
+                α = k[c] / w[c]
+                δ = zero(α)
+            end
+            for m in 1:k[c]
+                i = idx(c, m)
+                W[i, i] = -(α + δ)
+                W[dead, i] += δ
+                if m < k[c]
+                    W[idx(c, m+1), i] = α      # progress within the Erlang chain
+                elseif c < C
+                    W[idx(c+1, 1), i] = α      # progress to the next compartment
+                else
+                    W[dead, i] += α            # last compartment exits to unobserved bin
+                end
+            end
         end
-
+        return W
     end
-    
 
+    coarse_grain = zeros(C, n_hidden)
+    for c in 1:C, m in 1:k[c]
+        coarse_grain[c, idx(c, m)] = 1.0
+    end
+
+    return (; transition_fcn, coarse_grain, n_hidden)
 end
-
-
-function sample_model_queuing(chain,t)
-    samp = rand_draw(chain)
-    N = rand(NegativeBinomial(samp.r,samp.p))
-    w1 = samp.var"w1"
-    w2 = samp.var"w2"
-    w3 = samp.var"w3"
-    θ12 = samp.var"θ12"
-    θ34 = samp.var"θ34"
-    θ345 = samp.var"θ345"
-    θ678 = samp.var"θ678"
-    θ67 = samp.var"θ67"
-    W = transition_matrix_queuing(params_to_rates_queuing(w1,w2,w3,θ12,θ34,θ345,θ678,θ67))
-    transition_matrix = exponential!(W * (t -2.0)) 
-    Λ = transition_matrix[:,1:end-1]* [samp.var"π_vals[1]", samp.var"π_vals[2]", samp.var"π_vals[3]", samp.var"π_vals[4]", samp.var"π_vals[5]"]
-    Λ = Λ ./ sum(Λ) # Ensure probabilities sum to 1
-    return rand(Multinomial(N,Λ))
-end
-
-function sample_model_exact_queuing(chain,t)
-    samp = rand_draw(chain)
-    r = samp.var"r"
-    p = samp.var"p"
-    N = rand(Gamma(r*(1-p),1/p))
-    w1 = samp.var"w1"
-    w2 = samp.var"w2"
-    w3 = samp.var"w3"
-    θ12 = samp.var"θ12"
-    θ34 = samp.var"θ34"
-    θ345 = samp.var"θ345"
-    θ678 = samp.var"θ678"
-    θ67 = samp.var"θ67"
-    W = transition_matrix_queuing(params_to_rates_queuing(w1,w2,w3,θ12,θ34,θ345,θ678,θ67))
-    transition_matrix = exponential!(W * (t -2.0)) 
-    Λ = transition_matrix[:,1:end-1]* [samp.var"π_vals[1]", samp.var"π_vals[2]", samp.var"π_vals[3]", samp.var"π_vals[4]", samp.var"π_vals[5]"]
-    @assert abs(sum(Λ) - 1.0) < 1e-6
-    Λ = Λ ./ sum(Λ) 
-    return multinomial_approx(N, Λ,randn(5))
-end
-
