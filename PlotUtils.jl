@@ -111,20 +111,27 @@ function plot_empirical_stats(mean_data, cov_data, mean_quantiles_model,cov_quan
     plot!(plt_mean,[1e-6, 1e6], [1e-6, 1e6], label=false, lc=:black, ls=:dash,ylims=ylims(plt_mean),
         xlims=xlims(plt_mean), grid=false)
 
-    c_val = vec(vcat([ones(Int64,3) .+ I(3) for _ in 1:length(cov_data)]...))
+    # Diagonal entries of the covariance matrix are variances, off-diagonal are
+    # covariances; colour and label the two so they can be told apart.
+    c_val    = vec(vcat([ones(Int64,3) .+ I(3) for _ in 1:length(cov_data)]...))
+    xcov     = vec(vcat(cov_data...))
+    ycov     = vec(cov_quantiles_model[:,:,:,2])
+    var_mask = c_val .== 2          # diagonal     -> variances
+    cov_mask = c_val .== 1          # off-diagonal -> covariances
+    yerr_cov = (vec(cov_quantiles_model[:,:,:,2]) .- vec(cov_quantiles_model[:,:,:,1]),
+                vec(cov_quantiles_model[:,:,:,3]) .- vec(cov_quantiles_model[:,:,:,2]))
     if logscale
-        plt_cov = scatter(vec(vcat(cov_data...)), vec(cov_quantiles_model[:,:,:,2]), 
-        yerr = (vec(cov_quantiles_model[:,:,:,2]) .- vec(cov_quantiles_model[:,:,:,1]), 
-                    vec(cov_quantiles_model[:,:,:,3]) .- vec(cov_quantiles_model[:,:,:,2])),
-                    xlabel="Empirical covariance", ylabel=ylabel_cov, label=false,xaxis=:log10, yaxis=:log10)    
-        scatter!(plt_cov, vec(vcat(cov_data...)), vec(cov_quantiles_model[:,:,:,2]), c=c_val, label=false)                    
+        plt_cov = scatter(xcov, ycov, yerr=yerr_cov, mc=:lightgray, msc=:lightgray,
+                    xlabel="Empirical covariance", ylabel=ylabel_cov, label=false,
+                    xaxis=:log10, yaxis=:log10, legend=:topleft)
+        scatter!(plt_cov, xcov[var_mask], ycov[var_mask], c=2, label="Variance (diagonal)")
+        scatter!(plt_cov, xcov[cov_mask], ycov[cov_mask], c=1, label="Covariance (off-diagonal)")
         plot!(plt_cov,[1e-6, 1e6], [1e-6, 1e6], label=false, lc=:black, ls=:dash,ylims=ylims(plt_cov),xlims=xlims(plt_cov), grid=false)
     else
-        plt_cov = scatter(vec(vcat(cov_data...)), vec(cov_quantiles_model[:,:,:,2]), 
-        yerr = (vec(cov_quantiles_model[:,:,:,2]) .- vec(cov_quantiles_model[:,:,:,1]), 
-                    vec(cov_quantiles_model[:,:,:,3]) .- vec(cov_quantiles_model[:,:,:,2])),
-                    xlabel="Empirical covariance", ylabel=ylabel_cov, label=false)    
-        scatter!(plt_cov, vec(vcat(cov_data...)), vec(cov_quantiles_model[:,:,:,2]), c=c_val, label=false)
+        plt_cov = scatter(xcov, ycov, yerr=yerr_cov, mc=:lightgray, msc=:lightgray,
+                    xlabel="Empirical covariance", ylabel=ylabel_cov, label=false, legend=:topleft)
+        scatter!(plt_cov, xcov[var_mask], ycov[var_mask], c=2, label="Variance (diagonal)")
+        scatter!(plt_cov, xcov[cov_mask], ycov[cov_mask], c=1, label="Covariance (off-diagonal)")
         plot!(plt_cov,[-1e6, 1e6], [-1e6, 1e6], label=false, lc=:black, ls=:dash,ylims=ylims(plt_cov),xlims=xlims(plt_cov), grid=false)
     end
 

@@ -14,9 +14,9 @@ include("PlotUtils.jl")
 
 
 θ_fixed = [0.0043, 0.0017, 0.043, 0.057]*30.4 # fixed values from Faddy converted into 1/month
-w1_fixed = 1/(θ_fixed[1] + θ_fixed[2])
-w2_fixed = 1/θ_fixed[3]
-w3_fixed = 1/θ_fixed[4]
+μ1_fixed = 1/(θ_fixed[1] + θ_fixed[2])
+μ2_fixed = 1/θ_fixed[3]
+μ3_fixed = 1/θ_fixed[4]
 θ12_fixed = θ_fixed[1]/(θ_fixed[1] + θ_fixed[2])
 
 
@@ -24,17 +24,21 @@ init_priors = [LogNormal(params_logn(1750,35_000)...),
                 Truncated(Beta(3, 750), 1e-8,Inf)]
 π_priors = Dirichlet(ones(3))
 
-rate_priors = [ LogNormal(params_logn(w1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
-    LogNormal(params_logn(w2_fixed,0.008)...),
-    LogNormal(params_logn(w3_fixed,0.008)...),
+# rate_params = [μ1, μ2, μ3, θ12]:
+#   μ_c : mean residence time in compartment c (k=1, simple exponential)
+#   θ12 : survival probability Primordial -> Primary (Primary and Secondary have
+#         no death channel in the Faddy model, so every follicle progresses)
+rate_priors = [ LogNormal(params_logn(μ1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
+    LogNormal(params_logn(μ2_fixed,0.008)...),
+    LogNormal(params_logn(μ3_fixed,0.008)...),
     Beta(4,4)]
-coarse_grain_arr = I(3)    
+coarse_grain_arr = I(3)
 
 
 
 function transition_matrix_faddy(params)
-    w1, w2, w3, θ12 = params
-    θ = [θ12/w1, (1-θ12)/w1, 1/w2, 1/w3]
+    μ1, μ2, μ3, θ12 = params
+    θ = [θ12/μ1, (1-θ12)/μ1, 1/μ2, 1/μ3]
     return [
         -(θ[1]+θ[2])  0.0      0.0       0.0  
         θ[1]      -(θ[3])      0.0       0.0
@@ -82,7 +86,7 @@ savefig("plots/predictive_checks_fixed_rates.pdf")
     
 sample_fun = make_sample_fun(chain, transition_matrix_faddy)
 
-N_samples = 20_0
+N_samples = 10_000
 t_vals = 2:0.5:12
 quantiles = compute_quantiles(sample_fun, t_vals; N_samples)
 
@@ -102,7 +106,7 @@ param_plots = plot_param_posteriors(chain,
     ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]", "rate_params[4]"],
     [init_priors..., rate_priors...],
     [1000:5:2500, 0:0.0001:0.015, 0:0.01:9, 0:0.01:3, 0:0.01:2, 0:0.01:1],
-    ["μ", "p", "w1", "w2", "w3", "θ12"])
+    ["μ_N", "p", "μ1", "μ2", "μ3", "θ12"])
 p_π = plot_π_posterior(chain, π_priors)
 plot(p_π..., param_plots..., layout=(3,3), size=(1000,400), margin=4mm)
 savefig("plots/Faddy_model_fitted_params.pdf")
@@ -111,17 +115,18 @@ savefig("plots/Faddy_model_fitted_params.pdf")
 pres_plots = plot_param_posteriors(chain,
     ["rate_params[2]", "rate_params[3]", "rate_params[4]"],
     rate_priors[2:4],
-    [0:0.01:3, 0:0.01:2, 0:0.01:1],
+    [0:0.01:1.2, 0:0.01:1.2, 0:0.01:1],
     ["Avg time as Primary", "Avg time as Secondary", "Probability of reaching primary"];
     ylabel="Density")
 plot(pres_plots..., layout=(1,3), size=(1000,300), margin=5mm)
 savefig("plots/PosteriorPredsFaddy.pdf")
 
 # ===== Conditional residence-time distributions =====
-# Posterior-predictive distribution of the time a follicle spends in Primary /
-# Secondary GIVEN it successfully progresses out (rather than dying). In the
-# Faddy model there is no death from Primary/Secondary, so every transition is a
-# success and these are simple exponentials. Integrates over posterior uncertainty.
+# Time a follicle spends in Primary / Secondary GIVEN it successfully progresses
+# out. In the Faddy model Primary and Secondary have no death channel, so every
+# follicle progresses and the residence times are simple exponentials with means
+# μ2 and μ3 (k=1, so conditional and unconditional coincide). Integrates over
+# posterior uncertainty.
 primary_times   = posterior_sojourn_times(chain, transition_matrix_faddy, coarse_grain_arr, 2; N=50_000)
 secondary_times = posterior_sojourn_times(chain, transition_matrix_faddy, coarse_grain_arr, 3; N=50_000)
 

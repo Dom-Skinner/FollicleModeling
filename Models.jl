@@ -137,18 +137,22 @@ end
 # rate α_c and dies at rate δ_c (see docs/notes.tex). The marginal time to
 # *progress out* of the compartment is Erlang(k[c], α_c).
 #
-# Semantic rate_params = [w_1,…,w_C, θ_1,…,θ_{C-1}]:
-#   w_c : mean residence time in compartment c (total time spent there, whether
-#         the follicle ends up progressing or dying)
-#   θ_c : survival probability through compartment c (progress vs die),
-#         for c < C only.
-# The per-substate rates are chosen so that, with per-substate survival
-# s_c = θ_c^(1/k[c]) and total rate r_c = α_c + δ_c,
-#       (s_c)^{k[c]} = θ_c   and   (1/r_c)·(1 - s_c^{k[c]})/(1 - s_c) = w_c,
-# i.e. r_c = (1 - θ_c)/((1 - s_c)·w_c), α_c = s_c·r_c, δ_c = (1 - s_c)·r_c.
-# This reduces to the exponential case α_c = θ_c/w_c, δ_c = (1-θ_c)/w_c at k=1.
-# The last compartment has no branching parameter: progression and death both
-# flow to the same unobserved bin, so δ_C = 0 and α_C = k[C]/w_C.
+# Semantic rate_params = [μ_1,…,μ_C, θ_1,…,θ_C]:
+#   μ_c : mean residence time in compartment c *conditional on successfully
+#         progressing* (i.e. among follicles that do not die). Conditional on
+#         success the time in compartment c is Erlang(k[c], k[c]/μ_c).
+#   θ_c : survival probability through compartment c (progress to the next
+#         compartment vs die).
+# With per-substate survival s_c = θ_c^(1/k[c]) and total rate r_c = α_c + δ_c,
+#       (s_c)^{k[c]} = θ_c   and   r_c = k[c]/μ_c,
+# i.e. α_c = s_c·r_c, δ_c = (1 - s_c)·r_c.
+# This reduces to the exponential case α_c = θ_c/μ_c, δ_c = (1-θ_c)/μ_c at k=1
+# (where conditional and unconditional mean residence coincide).
+# Every compartment uses the same convention. For the last compartment both
+# progression and death flow into the same unobserved bin, so its final substate
+# leaves at the full rate α_C + δ_C; θ_C is then only weakly identified (it
+# shapes the residence-time distribution but not its mean), which is harmless
+# for Bayesian inference.
 #
 # Returns (; transition_fcn, coarse_grain, n_hidden) for use with `total_model`:
 #   transition_fcn(rate_params) -> (n_hidden+1)×(n_hidden+1) generator W
@@ -164,30 +168,25 @@ function build_queuing_model(k::AbstractVector{<:Integer})
     idx(c, m) = offset[c] + m
 
     function transition_fcn(rate_params)
-        w = rate_params[1:C]
-        θ = rate_params[C+1:2C-1]
+        μ = rate_params[1:C]
+        θ = rate_params[C+1:2C]
         T = eltype(rate_params)
         W = zeros(T, n, n)
         for c in 1:C
-            if c < C
-                s = θ[c]^(1/k[c])              # per-substate survival probability
-                r = (1 - θ[c]) / ((1 - s) * w[c])   # per-substate total rate α + δ
-                α = s * r
-                δ = (1 - s) * r
-            else                              # last compartment: no death channel
-                α = k[c] / w[c]
-                δ = zero(α)
-            end
+            s = θ[c]^(1/k[c])                 # per-substate survival probability
+            r = k[c] / μ[c]                   # per-substate total rate α + δ
+            α = s * r
+            δ = (1 - s) * r
             for m in 1:k[c]
                 i = idx(c, m)
                 W[i, i] = -(α + δ)
-                W[dead, i] += δ
+                W[dead, i] += δ                # death to the unobserved bin
                 if m < k[c]
-                    W[idx(c, m+1), i] = α      # progress within the Erlang chain
+                    W[idx(c, m+1), i] = α       # progress within the Erlang chain
                 elseif c < C
-                    W[idx(c+1, 1), i] = α      # progress to the next compartment
+                    W[idx(c+1, 1), i] = α       # progress to the next compartment
                 else
-                    W[dead, i] += α            # last compartment exits to unobserved bin
+                    W[dead, i] += α             # last compartment: progression also unobserved
                 end
             end
         end
