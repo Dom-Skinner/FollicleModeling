@@ -25,17 +25,21 @@ function rand_draw(df::DataFrame)
 end
 
 
-function extract_data()
+# Columns are [Primordial, Primary, Secondary] (CSV cols 4,6,7). The inference
+# code only ever uses these three. Pass include_tertiary=true to also append
+# Tertiary+ (CSV col 8) as a 4th column — used only for the raw-data pie chart.
+function extract_data(; include_tertiary=false)
     file = "data/WT C57B6 mouse oocyte counts for Dominic.xlsx - Aging WM Tracker.csv"
     df = CSV.read(file, DataFrame)
 
     idx = findall(!ismissing,df.Condition)
+    cols = include_tertiary ? [4,6,7,8] : [4,6,7]
 
-    counts_2_month = Matrix(df[idx[1]:idx[2]-1,[4,6,7]])
-    counts_4_month = Matrix(df[idx[2]:idx[3]-1,[4,6,7]])
-    counts_6_month = Matrix(df[idx[3]:idx[4]-1,[4,6,7]])
-    counts_9_month = Matrix(df[idx[4]:idx[5]-1,[4,6,7]])
-    counts_12_month = Matrix(df[idx[5]:end,[4,6,7]])
+    counts_2_month = Matrix(df[idx[1]:idx[2]-1,cols])
+    counts_4_month = Matrix(df[idx[2]:idx[3]-1,cols])
+    counts_6_month = Matrix(df[idx[3]:idx[4]-1,cols])
+    counts_9_month = Matrix(df[idx[4]:idx[5]-1,cols])
+    counts_12_month = Matrix(df[idx[5]:end,cols])
     return counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month
 end
 
