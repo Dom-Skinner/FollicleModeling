@@ -13,68 +13,57 @@ include("PlotUtils.jl")
    input_data, times_unique, times_vec) = load_training_data()
 
 
-θ_fixed = [0.0043, 0.0017, 0.043, 0.057]*30.4 # fixed values from Faddy converted into 1/month
-w1_fixed = 1/(θ_fixed[1] + θ_fixed[2])
-w2_fixed = 1/θ_fixed[3]
-w3_fixed = 1/θ_fixed[4]
-θ12_fixed = θ_fixed[1]/(θ_fixed[1] + θ_fixed[2])
+# ===== Paused + queuing (Erlang) model =====
+# Each observed compartment is expanded into k_c Erlang substates (exactly the
+# queuing topology). Primary and Secondary additionally carry a dormant reservoir
+# state P_c that resumes into their first substate S_{c,1}: an unpaused follicle
+# sees the plain queuing chain, an initially paused one joins it at S_{c,1}. The
+# reservoirs have no inflow (first-wave folliculogenesis leftovers), populated only
+# by the 2-month initial condition.
+k      = [1, 8, 8]
+paused = [false, true, true]
+(; transition_fcn, coarse_grain, n_hidden) = build_queuing_model(k; paused=paused)
 
 
-# ============================================================
-# Priors shared across both fitting steps
-# ============================================================
+# Ballpark timescales from the Faddy fit (converted to 1/month), used to set priors.
+θ_fixed = [0.0043, 0.0017, 0.043, 0.057]*30.4
+μ1_fixed = 1/(θ_fixed[1] + θ_fixed[2])
+μ2_fixed = 1/θ_fixed[3]
+μ3_fixed = 1/θ_fixed[4]
+
 
 init_priors = [LogNormal(params_logn(1750,35_000)...),
-                Truncated(Beta(3, 750), 1e-8, Inf)]
+                Truncated(Beta(3, 750), 1e-8,Inf)]
+π_priors = Dirichlet(ones(n_hidden))      # full Dirichlet over all hidden states (active + paused)
 
-# 7-element rate prior for [w1, w2, w3, θ12, θ34, θ6, θ7]
-rate_priors_paused = [
-    LogNormal(params_logn(w1_fixed,3.0)...),
-    LogNormal(params_logn(w2_fixed,0.02)...),
-    LogNormal(params_logn(w3_fixed,0.02)...),
-    Beta(4,4),        # θ12
-    Beta(4,4),        # θ34
-    Gamma(2.0, 0.3),  # θ6: resume rate for paused primary
-    Gamma(2.0, 0.3),  # θ7: resume rate for paused secondary
-]
-
-# coarse-graining matrix: maps 5 non-absorbing states to 3 observed categories
-# [Primordial | Primary-active + Primary-paused | Secondary-active + Secondary-paused]
-coarse_grain_paused = Float64[1 0 0 0 0;
-                               0 1 1 0 0;
-                               0 0 0 1 1]
-
-function transition_matrix_paused(params)
-    w1, w2, w3, θ12, θ34, θ6, θ7 = params
-    θ = [θ12/w1, (1-θ12)/w1, θ34/w2, (1-θ34)/w2, 1/w3, θ6, θ7]
-    return [
-        -(θ[1]+θ[2])    0.0        0.0     0.0   0.0   0.0
-        θ[1]      -(θ[3]+θ[4])     θ[6]    0.0   0.0   0.0
-        0.0             0.0       -θ[6]    0.0   0.0   0.0
-        0.0             θ[4]       0.0    -θ[5]  θ[7]  0.0
-        0.0             0.0        0.0     0.0  -θ[7]  0.0
-        θ[2]            θ[3]       0.0     θ[5]  0.0   0.0
-    ]
-end
+# rate_params = [μ1, μ2, μ3, θ1, θ2, θ3, μ_pause_primary, μ_pause_secondary]:
+#   μ_c        : mean residence time in compartment c, conditional on successful
+#                progression (Erlang(k_c, k_c/μ_c) among surviving follicles)
+#   θ1, θ2, θ3 : survival probabilities (θ3 weakly identified, as in QueuingModel)
+#   μ_pause_*  : mean dormancy time in the Primary / Secondary paused reservoir
+#                (resume rate = 1/μ_pause). Informed only via how the initial
+#                paused mass drains over 4-12 months — priors matter; tune freely.
+rate_priors = [ LogNormal(params_logn(μ1_fixed,3.0)...),
+    LogNormal(params_logn(μ2_fixed,0.008)...),
+    LogNormal(params_logn(μ3_fixed,0.008)...),
+    Beta(4,4),
+    Beta(4,4),
+    Beta(4,4),
+    Exponential(5.0),
+    Exponential(5.0)]
 
 
-
-# ============================================================
-# Step 1: Fit initial conditions only (prior predictive for dynamics)
-# ============================================================
-# Passing empty observations/times mirrors the fixed-rate step in FaddyModel.jl:
-# rates are drawn from their priors but not informed by the 4-12 month data.
-
+################ First we fit with fixed rates, i.e. initial conditions only
 @time prior_chain = sample(total_model(counts_2_month, [],[],[],
-    init_priors, Dirichlet(ones(5)), rate_priors_paused,
-    transition_matrix_paused, coarse_grain_paused),
-    NUTS(), MCMCThreads(), 1000, 2);
+    init_priors,π_priors,rate_priors,transition_fcn,coarse_grain),NUTS(),  MCMCThreads(),1000,2);
+#jldsave("models/PausingModel_fixed.jld2"; prior_chain)
 
-N_samples = 400
+
+N_samples = 40_0
 t_vals = 2:0.25:12
 
-sample_fun_prior = make_sample_fun(prior_chain, transition_matrix_paused; coarse_grain=coarse_grain_paused)
-quantiles = compute_quantiles(sample_fun_prior, t_vals; N_samples)
+sample_fun = make_sample_fun(prior_chain, transition_fcn; coarse_grain=coarse_grain)
+quantiles = compute_quantiles(sample_fun, t_vals; N_samples)
 
 p_arr = credible_ribbon_plots(quantiles, t_vals)
 plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_month,counts_12_month)
@@ -82,27 +71,26 @@ plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_mo
 plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
 savefig("plots/Pausing_model_fixed_rates.pdf")
 
+
 mean_data, cov_data = empirical_stats(input_data, times_vec)
 
-plt_mean, plt_cov = calibration_plots(sample_fun_prior, input_data, times_vec, times_unique, mean_data, cov_data;
+plt_mean, plt_cov = calibration_plots(sample_fun, input_data, times_vec, times_unique, mean_data, cov_data;
     ylabel_mean="Prior mean", ylabel_cov="Prior covariance")
 plot(plt_mean, plt_cov)
-savefig("plots/pausing_predictive_checks_fixed_rates.pdf")
+savefig("plots/Pausing_predictive_checks_fixed_rates.pdf")
 
 
-# ============================================================
-# Step 2: Full fit (rates + initial conditions)
-# ============================================================
+# ========== Now fit everything, not just initial conditions ==========
 
 @time chain = sample(total_model(counts_2_month, Int64.(input_data), times_vec,
-    times_unique, init_priors, Dirichlet(ones(5)), rate_priors_paused,
-    transition_matrix_paused, coarse_grain_paused),
-    NUTS(), MCMCThreads(), 2000, 2);
+    times_unique,init_priors,π_priors,rate_priors,transition_fcn,coarse_grain),NUTS(),  MCMCThreads(),300,2);
 
-# Posterior predictive credible interval ribbons
+savefig(plot(chain), "plots/Pausing_model_chain.pdf")
 
-t_vals = 2:0.5:12
-sample_fun = make_sample_fun(chain, transition_matrix_paused; coarse_grain=coarse_grain_paused)
+sample_fun = make_sample_fun(chain, transition_fcn; coarse_grain=coarse_grain)
+
+N_samples = 4_000
+t_vals = 2:0.25:12
 quantiles = compute_quantiles(sample_fun, t_vals; N_samples)
 
 p_arr = credible_ribbon_plots(quantiles, t_vals)
@@ -111,49 +99,83 @@ plot_exp_data!(p_arr...,counts_2_month,counts_4_month,counts_6_month,counts_9_mo
 plot(p_arr...,layout=(1,3),size=(1000,450), margin = 4mm)
 savefig("plots/Pausing_model_fitted_rates.pdf")
 
-# Posterior predictive calibration (mean and covariance)
+
 plt_mean, plt_cov = calibration_plots(sample_fun, input_data, times_vec, times_unique, mean_data, cov_data)
 plot(plt_mean, plt_cov)
-savefig("plots/pausing_predictive_checks_fitted_rates.pdf")
+savefig("plots/Pausing_predictive_checks_fitted_rates.pdf")
 
-# Prior/posterior comparison for each parameter
+# prior/posterior check
 param_plots = plot_param_posteriors(chain,
     ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]",
-     "rate_params[4]", "rate_params[5]", "rate_params[6]", "rate_params[7]"],
-    [init_priors..., rate_priors_paused...],
+     "rate_params[4]", "rate_params[5]", "rate_params[6]", "rate_params[7]", "rate_params[8]"],
+    [init_priors..., rate_priors...],
     [1000:5:2500, 0:0.0001:0.015, 0:0.01:9, 0:0.01:3, 0:0.01:2,
-     0:0.01:1, 0:0.01:1, 0:0.01:1, 0:0.01:1],
-    ["μ", "p", "w1", "w2", "w3", "θ12", "θ34", "θ6", "θ7"])
-p_π = plot_π_posterior(chain, Dirichlet(ones(5)))
-plot(p_π..., param_plots..., layout=(4,4), size=(1000,600), margin=4mm)
-savefig("plots/pausing_model_prior_posterior.pdf")
+     0:0.01:1, 0:0.01:1, 0:0.01:1, 0:0.1:20, 0:0.1:20],
+    ["μ_N", "p", "μ1", "μ2", "μ3", "θ1", "θ2", "θ3", "μ_pause_primary", "μ_pause_secondary"])
+p_π = plot_π_posterior(chain, π_priors)
+plot(p_π..., param_plots..., size=(1600,900), margin=4mm)
+savefig("plots/Pausing_model_fitted_params.pdf")
 
-# Presentation-quality parameter plots
+
 pres_plots = plot_param_posteriors(chain,
-    ["rate_params[2]", "rate_params[3]", "rate_params[4]", "rate_params[5]"],
-    rate_priors_paused[2:5],
-    [0:0.01:3, 0:0.01:2, 0:0.01:1, 0:0.01:1],
-    ["Avg time as Primary (months)", "Avg time as Secondary (months)",
-     "Probability of reaching primary", "Probability of reaching \n secondary from primary"];
+    ["rate_params[2]", "rate_params[3]", "rate_params[7]", "rate_params[8]"],
+    vcat(rate_priors[2:3], rate_priors[7:8]),
+    [0:0.01:1.2, 0:0.01:1.2, 0:0.1:30, 0:0.1:30],
+    ["Avg time as Primary", "Avg time as Secondary", "Avg time as paused primary", "Avg time as paused secondary"];
     ylabel="Density")
-plot(pres_plots..., layout=(1,4), size=(1000,300), margin=6mm, xguidefontsize=8, guidefontsize=8)
-savefig("plots/PosteriorPredsPaused.pdf")
+# ----- Paused-follicle summaries: number and within-compartment fraction -----
+# Paused follicles are latent (counted inside the observed Primary/Secondary
+# totals). Per posterior draw, expected number = μ_N * occupancy and the paused
+# fraction = paused occupancy / compartment occupancy (compartment total via
+# coarse_grain). Compared at 2 vs 12 months.
+chain_df = DataFrame(chain)
+paused_state(c) = sum(k) + findfirst(==(c), findall(paused))   # hidden index of P_c
+ip, is = paused_state(2), paused_state(3)
 
-# ===== Conditional residence-time distributions (active time only) =====
-# Posterior-predictive distribution of the time a follicle spends in the ACTIVE
-# Primary / Secondary state GIVEN it successfully progresses out, EXCLUDING any
-# time spent paused. State layout: 1=Primordial, 2=Primary-active,
-# 3=Primary-paused, 4=Secondary-active, 5=Secondary-paused, 6=Dead — so we count
-# only states 2 and 4. The trajectory still passes through the paused states;
-# their holding time is simply not accumulated.
-primary_times   = posterior_sojourn_times(chain, transition_matrix_paused, coarse_grain_paused, 2;
-                                           N=50_000, count_states=[2])
-secondary_times = posterior_sojourn_times(chain, transition_matrix_paused, coarse_grain_paused, 3;
-                                           N=50_000, count_states=[4])
+function paused_draw(t)
+    samp = rand_draw(chain_df)
+    μN   = extract_array(samp, "ic")[1]
+    a    = probability_flow(extract_array(samp, "π_vals"),
+                            transition_fcn(extract_array(samp, "rate_params")), [t])[1][1:end-1]
+    (num_p  = μN * a[ip],  num_s  = μN * a[is],
+     frac_p = a[ip] / dot(coarse_grain[2, :], a),
+     frac_s = a[is] / dot(coarse_grain[3, :], a))
+end
+
+Ndraw   = 5_000
+draws2  = [paused_draw(2.0)  for _ in 1:Ndraw]
+draws12 = [paused_draw(12.0) for _ in 1:Ndraw]
+
+paused_panel(getter, xlabel) = begin
+    p = density([getter(d) for d in draws2],  label="2 mo",  lw=2, fill=(0,0.15), grid=false,
+                xlabel=xlabel, ylabel="Density")
+    density!(p, [getter(d) for d in draws12], label="12 mo", lw=2, fill=(0,0.15))
+    p
+end
+p_num_p  = paused_panel(d -> d.num_p,  "# paused primary")
+p_num_s  = paused_panel(d -> d.num_s,  "# paused secondary")
+p_frac_p = paused_panel(d -> d.frac_p, "paused fraction of primary")
+p_frac_s = paused_panel(d -> d.frac_s, "paused fraction of secondary")
+
+plot(pres_plots..., p_num_p, p_num_s, p_frac_p, p_frac_s,
+     layout=(2,4), size=(1600,600), margin=5mm)
+savefig("plots/PosteriorPredsPausing.pdf")
+
+# ===== Conditional residence-time distributions =====
+# Active time a follicle spends in Primary / Secondary GIVEN it successfully
+# progresses out (rather than dying), EXCLUDING any dormancy. The reservoir only
+# adds pause *before* S_{c,1}, so the active residence is the same Erlang as in the
+# queuing model: Erlang(k_c, k_c/μ_c), independent of the death rate. We sample it
+# directly, one draw per posterior sample.
+chain_df = DataFrame(chain)
+conditional_sojourn(c; N=50_000) =
+    [rand(Erlang(k[c], extract_array(rand_draw(chain_df), "rate_params")[c] / k[c])) for _ in 1:N]
+primary_times   = conditional_sojourn(2)
+secondary_times = conditional_sojourn(3)
 
 p_soj = density(primary_times, label="Primary (active)", lw=2, fill=(0,0.15), grid=false,
-                xlabel="Active time spent in compartment (months)", ylabel="Density",xlims=(0,5))
-density!(p_soj, secondary_times, label="Secondary (active)", lw=2, fill=(0,0.15))
+                xlabel="Active time spent in compartment (months)", ylabel="Density")
+density!(p_soj, secondary_times, label="Secondary (active)", lw=2, fill=(0,0.15),xlims=(0,2))
 vline!(p_soj, [mean(primary_times)],   ls=:dash, lc=1, label="")
 vline!(p_soj, [mean(secondary_times)], ls=:dash, lc=2, label="")
 plot(p_soj, size=(600,400), margin=4mm)

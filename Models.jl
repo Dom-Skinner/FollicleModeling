@@ -154,22 +154,37 @@ end
 # shapes the residence-time distribution but not its mean), which is harmless
 # for Bayesian inference.
 #
+# `paused` (length C) optionally adds a dormant reservoir state P_c to each
+# flagged compartment. P_c resumes into that compartment's first active substate,
+# W[S_{c,1}, P_c] = 1/μ_pause,c, with no death and no inflow — it is populated only
+# by the initial distribution (first-wave folliculogenesis leftovers) and drains
+# into the active chain. So an unpaused follicle sees exactly the queuing topology
+# and an initially paused one joins it at S_{c,1}. Each paused compartment appends
+# one mean-pause-duration parameter μ_pause to rate_params (after the μ's and θ's),
+# in compartment order. P_c is grouped with compartment c in coarse_grain.
+#
+# rate_params = [μ_1,…,μ_C, θ_1,…,θ_C, μ_pause for each paused compartment].
+#
 # Returns (; transition_fcn, coarse_grain, n_hidden) for use with `total_model`:
 #   transition_fcn(rate_params) -> (n_hidden+1)×(n_hidden+1) generator W
 #       (column = source, row = destination; final column is the unobserved state)
 #   coarse_grain :: C × n_hidden  sums substates back to observed compartments
-#   n_hidden = sum(k)             length of the Dirichlet over initial states
-function build_queuing_model(k::AbstractVector{<:Integer})
+#   n_hidden = sum(k) + (#paused)  length of the Dirichlet over initial states
+function build_queuing_model(k::AbstractVector{<:Integer}; paused=falses(length(k)))
     C = length(k)
-    n_hidden = sum(k)
+    paused_comps = findall(paused)               # compartments with a reservoir
+    n_p = length(paused_comps)
+    n_hidden = sum(k) + n_p
     n = n_hidden + 1                 # + absorbing/unobserved "growing/dead" state
     dead = n
-    offset = [sum(@view k[1:c-1]) for c in 1:C]   # substates before compartment c
+    offset = [sum(@view k[1:c-1]) for c in 1:C]   # active substates before compartment c
     idx(c, m) = offset[c] + m
+    pidx(i) = sum(k) + i             # paused state of the i-th paused compartment
 
     function transition_fcn(rate_params)
         μ = rate_params[1:C]
         θ = rate_params[C+1:2C]
+        pause = rate_params[2C+1:2C+n_p]          # mean pause duration per paused compartment
         T = eltype(rate_params)
         W = zeros(T, n, n)
         for c in 1:C
@@ -190,12 +205,22 @@ function build_queuing_model(k::AbstractVector{<:Integer})
                 end
             end
         end
+        for i in 1:n_p                          # dormant reservoirs: P_c -> S_{c,1}
+            c = paused_comps[i]
+            p = pidx(i)
+            ρ = 1 / pause[i]
+            W[p, p] = -ρ
+            W[idx(c, 1), p] = ρ
+        end
         return W
     end
 
     coarse_grain = zeros(C, n_hidden)
     for c in 1:C, m in 1:k[c]
         coarse_grain[c, idx(c, m)] = 1.0
+    end
+    for i in 1:n_p                              # paused state belongs to its compartment
+        coarse_grain[paused_comps[i], pidx(i)] = 1.0
     end
 
     return (; transition_fcn, coarse_grain, n_hidden)
