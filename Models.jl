@@ -38,9 +38,9 @@ function probability_flow(π_vals,W,times_unique)
     end
     return Λ_all
 end
-# ================================ Faddy model ================================
-
-
+# The pure-exponential (Faddy) model is just build_queuing_model([1,1,1]) with
+# Primary survival pinned to 1 (no death from Primary/Secondary); see the Faddy
+# entry in ModelConfigs.jl. There is therefore no separate Faddy generator here.
 
 @model function total_model(initial_values,observations,times,times_unique,init_priors,π_priors, rate_priors,
         transition_matrix_fcn, coarse_grain_arr)

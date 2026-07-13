@@ -8,6 +8,7 @@ using JLD2
 include("Models.jl")
 include("Utils.jl")
 include("PlotUtils.jl")
+include("ModelConfigs.jl")
 
 (; counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month,
    input_data, times_unique, times_vec) = load_training_data()
@@ -20,37 +21,16 @@ include("PlotUtils.jl")
 # sees the plain queuing chain, an initially paused one joins it at S_{c,1}. The
 # reservoirs have no inflow (first-wave folliculogenesis leftovers), populated only
 # by the 2-month initial condition.
-k      = [1, 8, 8]
-paused = [false, true, true]
-(; transition_fcn, coarse_grain, n_hidden) = build_queuing_model(k; paused=paused)
-
-
-# Ballpark timescales from the Faddy fit (converted to 1/month), used to set priors.
-θ_fixed = [0.0043, 0.0017, 0.043, 0.057]*30.4
-μ1_fixed = 1/(θ_fixed[1] + θ_fixed[2])
-μ2_fixed = 1/θ_fixed[3]
-μ3_fixed = 1/θ_fixed[4]
-
-
-init_priors = [LogNormal(params_logn(1750,35_000)...),
-                Truncated(Beta(3, 750), 1e-8,Inf)]
-π_priors = Dirichlet(ones(n_hidden))      # full Dirichlet over all hidden states (active + paused)
-
-# rate_params = [μ1, μ2, μ3, θ1, θ2, θ3, μ_pause_primary, μ_pause_secondary]:
-#   μ_c        : mean residence time in compartment c, conditional on successful
-#                progression (Erlang(k_c, k_c/μ_c) among surviving follicles)
+#
+# Model definition (topology + priors) comes from the shared registry so it stays
+# in sync with the other scripts and the cross-validation code. rate_params =
+# [μ1, μ2, μ3, θ1, θ2, θ3, μ_pause_primary, μ_pause_secondary]:
+#   μ_c        : conditional mean residence time in compartment c
 #   θ1, θ2, θ3 : survival probabilities (θ3 weakly identified, as in QueuingModel)
 #   μ_pause_*  : mean dormancy time in the Primary / Secondary paused reservoir
-#                (resume rate = 1/μ_pause). Informed only via how the initial
-#                paused mass drains over 4-12 months — priors matter; tune freely.
-rate_priors = [ LogNormal(params_logn(μ1_fixed,3.0)...),
-    LogNormal(params_logn(μ2_fixed,0.008)...),
-    LogNormal(params_logn(μ3_fixed,0.008)...),
-    Beta(4,4),
-    Beta(4,4),
-    Beta(4,4),
-    Exponential(5.0),
-    Exponential(5.0)]
+#                (resume rate = 1/μ_pause), informed via how the initial paused
+#                mass drains over 4-12 months.
+(; k, paused, transition_fcn, coarse_grain, init_priors, π_priors, rate_priors) = model_config("Paused")
 
 
 ################ First we fit with fixed rates, i.e. initial conditions only

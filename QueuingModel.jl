@@ -8,44 +8,18 @@ using JLD2
 include("Models.jl")
 include("Utils.jl")
 include("PlotUtils.jl")
+include("ModelConfigs.jl")
 
 (; counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month,
    input_data, times_unique, times_vec) = load_training_data()
 
 
-# ===== Erlang shapes per observed compartment [Primordial, Primary, Secondary] =====
-# k = [1,1,1] recovers the exponential (Faddy-style) model; larger k gives a more
-# clock-like (less dispersed) maturation time (CV = 1/√k). Swap freely to compare.
-k = [1, 8, 8]
-(; transition_fcn, coarse_grain, n_hidden) = build_queuing_model(k)
-
-
-# Ballpark timescales from the Faddy fit (converted to 1/month), used to set priors.
-θ_fixed = [0.0043, 0.0017, 0.043, 0.057]*30.4
-μ1_fixed = 1/(θ_fixed[1] + θ_fixed[2])
-μ2_fixed = 1/θ_fixed[3]
-μ3_fixed = 1/θ_fixed[4]
-
-
-init_priors = [LogNormal(params_logn(1750,35_000)...),
-                Truncated(Beta(3, 750), 1e-8,Inf)]
-π_priors = Dirichlet(ones(n_hidden))      # full Dirichlet over all hidden substates
-
-# rate_params = [μ1, μ2, μ3, θ1, θ2, θ3]:
-#   μ_c : mean residence time in compartment c *conditional on successful
-#         progression* (Erlang(k_c, k_c/μ_c) among surviving follicles)
-#   θ1  : survival probability Primordial -> Primary
-#   θ2  : survival probability Primary    -> Secondary
-#   θ3  : survival probability Secondary  -> growing/dead bin. Weakly identified:
-#         progression and death from Secondary are both unobserved, so θ3 is
-#         informed mainly by the prior (and only weakly by the Secondary
-#         residence-time shape). Kept for a uniform parameterization.
-rate_priors = [ LogNormal(params_logn(μ1_fixed,3.0)...),
-    LogNormal(params_logn(μ2_fixed,0.008)...),
-    LogNormal(params_logn(μ3_fixed,0.008)...),
-    Beta(4,4),
-    Beta(4,4),
-    Beta(4,4)]
+# Model definition (topology + priors) comes from the shared registry so it stays
+# in sync with the other scripts and the cross-validation code. Erlang shapes
+# k = [1,8,8] per compartment [Primordial, Primary, Secondary]; larger k gives a
+# more clock-like (less dispersed) maturation time (CV = 1/√k). rate_params =
+# [μ1, μ2, μ3, θ1, θ2, θ3] (μ_c = conditional mean residence, θ_c = survival).
+(; k, transition_fcn, coarse_grain, init_priors, π_priors, rate_priors) = model_config("Queuing")
 
 
 ################ First we fit with fixed rates, i.e. initial conditions only

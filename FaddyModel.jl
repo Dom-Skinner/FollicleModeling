@@ -8,57 +8,28 @@ using JLD2
 include("Models.jl")
 include("Utils.jl")
 include("PlotUtils.jl")
+include("ModelConfigs.jl")
 
 (; counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month,
    input_data, times_unique, times_vec) = load_training_data()
 
-
-θ_fixed = [0.0043, 0.0017, 0.043, 0.057]*30.4 # fixed values from Faddy converted into 1/month
-μ1_fixed = 1/(θ_fixed[1] + θ_fixed[2])
-μ2_fixed = 1/θ_fixed[3]
-μ3_fixed = 1/θ_fixed[4]
-θ12_fixed = θ_fixed[1]/(θ_fixed[1] + θ_fixed[2])
-
-
-init_priors = [LogNormal(params_logn(1750,35_000)...),
-                Truncated(Beta(3, 750), 1e-8,Inf)]
-π_priors = Dirichlet(ones(3))
-
-# rate_params = [μ1, μ2, μ3, θ12]:
-#   μ_c : mean residence time in compartment c (k=1, simple exponential)
-#   θ12 : survival probability Primordial -> Primary (Primary and Secondary have
-#         no death channel in the Faddy model, so every follicle progresses)
-rate_priors = [ LogNormal(params_logn(μ1_fixed,3.0)...), # set priors based on Faddy values or ballpark magnitude estimates
-    LogNormal(params_logn(μ2_fixed,0.008)...),
-    LogNormal(params_logn(μ3_fixed,0.008)...),
-    Beta(4,4)]
-coarse_grain_arr = I(3)
-
-
-
-function transition_matrix_faddy(params)
-    μ1, μ2, μ3, θ12 = params
-    θ = [θ12/μ1, (1-θ12)/μ1, 1/μ2, 1/μ3]
-    return [
-        -(θ[1]+θ[2])  0.0      0.0       0.0  
-        θ[1]      -(θ[3])      0.0       0.0
-        0.0         θ[3]      -θ[4]      0.0
-        θ[2]          0        θ[4]      0.0
-    ]
-end
-
+# Model definition (topology + priors) comes from the shared registry so it stays
+# in sync with the other scripts and the cross-validation code. Faddy =
+# build_queuing_model([1,1,1]) with Primary survival pinned to 1; rate_params =
+# [μ1, μ2, μ3, θ12].
+(; transition_fcn, coarse_grain, init_priors, π_priors, rate_priors) = model_config("Faddy")
 
 
 ################ First we fit with fixed rates, i.e. initial conditions only
 @time prior_chain = sample(total_model(counts_2_month, [],[],[],
-    init_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),1000,2);
+    init_priors,π_priors,rate_priors,transition_fcn,coarse_grain),NUTS(),  MCMCThreads(),1000,2);
 #jldsave("models/FaddyModel_fixed.jld2"; prior_chain)
 
 
 N_samples = 40_0
 t_vals = 2:0.25:12
 
-sample_fun = make_sample_fun(prior_chain, transition_matrix_faddy)
+sample_fun = make_sample_fun(prior_chain, transition_fcn)
 quantiles = compute_quantiles(sample_fun, t_vals; N_samples)
 
 p_arr = credible_ribbon_plots(quantiles, t_vals)
@@ -81,10 +52,10 @@ savefig("plots/predictive_checks_fixed_rates.pdf")
     
 
 @time chain = sample(total_model(counts_2_month, Int64.(input_data), times_vec,
-    times_unique,init_priors,π_priors,rate_priors,transition_matrix_faddy,coarse_grain_arr),NUTS(),  MCMCThreads(),300,2);
+    times_unique,init_priors,π_priors,rate_priors,transition_fcn,coarse_grain),NUTS(),  MCMCThreads(),300,2);
 
     
-sample_fun = make_sample_fun(chain, transition_matrix_faddy)
+sample_fun = make_sample_fun(chain, transition_fcn)
 
 N_samples = 10_000
 t_vals = 2:0.5:12
@@ -127,8 +98,8 @@ savefig("plots/PosteriorPredsFaddy.pdf")
 # follicle progresses and the residence times are simple exponentials with means
 # μ2 and μ3 (k=1, so conditional and unconditional coincide). Integrates over
 # posterior uncertainty.
-primary_times   = posterior_sojourn_times(chain, transition_matrix_faddy, coarse_grain_arr, 2; N=50_000)
-secondary_times = posterior_sojourn_times(chain, transition_matrix_faddy, coarse_grain_arr, 3; N=50_000)
+primary_times   = posterior_sojourn_times(chain, transition_fcn, coarse_grain, 2; N=50_000)
+secondary_times = posterior_sojourn_times(chain, transition_fcn, coarse_grain, 3; N=50_000)
 
 p_soj = density(primary_times, label="Primary", lw=2, fill=(0,0.15), grid=false,
                 xlabel="Time spent in compartment (months)", ylabel="Density")
