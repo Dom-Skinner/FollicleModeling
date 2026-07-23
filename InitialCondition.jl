@@ -142,3 +142,46 @@ end
 
 plot(panels..., layout=(1,3), size=(1300,400), margin=5mm)
 savefig("plots/initial_condition_data.pdf")
+
+
+# ============================================================
+# Mean–variance / covariance structure across all timepoints
+# ============================================================
+# Diagnostic for the Gamma–Poisson (Negative-Binomial) + multinomial observation
+# model. Under that model each class marginally has
+#     Var(y_j) = mean_j + mean_j^2 / r      and      Cov(y_j, y_k) = mean_j·mean_k / r,
+# so on log–log axes the mean–variance points sit above the Poisson line and bend
+# toward slope 2, and the covariance-vs-mean·mean points lie on a slope-1 line with
+# offset log(1/r). One point per (class, timepoint) [=15] on the left; one per
+# (class pair, timepoint) [=15] on the right; colored by age. The dashed line is
+# the model prediction using r from the 2-month NB fit above (`r`), extended to
+# all ages to check whether one overdispersion parameter is consistent throughout.
+mv_counts   = collect(extract_data())            # 5 matrices, n×3 [Primordial, Primary, Secondary]
+mv_ages     = [2, 4, 6, 9, 12]
+class_pairs = [(1, 2), (1, 3), (2, 3)]
+agecols     = palette(:default)
+
+pmv = plot(xscale=:log10, yscale=:log10, grid=false, legend=:topleft,
+           xlabel="mean(y)", ylabel="var(y)", title="Mean–variance")
+pcov = plot(xscale=:log10, yscale=:log10, grid=false, legend=false,
+            xlabel="mean(y₁)·mean(y₂)", ylabel="cov(y₁, y₂)", title="Covariance structure")
+for (ti, c) in enumerate(mv_counts)
+    m = vec(mean(c, dims=1))
+    scatter!(pmv, m, vec(var(c, dims=1)); mc=agecols[ti], msw=0, ms=6, label="$(mv_ages[ti]) mo")
+    for (j, k) in class_pairs
+        scatter!(pcov, [m[j]*m[k]], [cov(c[:, j], c[:, k])]; mc=agecols[ti], msw=0, ms=6, label="")
+    end
+end
+
+# Reference lines. Poisson (no overdispersion): var = mean. NB (2-month fit, shape
+# r): var = mean + mean^2/r and cov = mean·mean/r. Points above the Poisson line
+# are overdispersed; the gap to the NB line shows whether one r fits all ages.
+mlo, mhi = extrema(vcat([vec(mean(c, dims=1)) for c in mv_counts]...))
+m_ref = 10 .^ range(log10(mlo), log10(mhi); length=100)
+plot!(pmv, m_ref, m_ref;                    lc=:black, ls=:dot,  label="Poisson (var = mean)")
+plot!(pmv, m_ref, m_ref .+ m_ref.^2 ./ r;   lc=:gray,  ls=:dash, label="NB (2-mo fit)")
+mm_ref = 10 .^ range(log10(mlo^2), log10(mhi^2); length=100)
+plot!(pcov, mm_ref, mm_ref ./ r; lc=:gray, ls=:dash, label="")
+
+plot(pmv, pcov, layout=(1,2), size=(1100,450), margin=5mm)
+savefig("plots/initial_condition_mean_variance.pdf")

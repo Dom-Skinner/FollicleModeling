@@ -100,28 +100,46 @@ function elpd_cv(config, data; folds = [[i] for i in 1:size(data.input_data, 1)]
 end
 
 
-# ---- Summaries over a stacked results DataFrame (all models, from elpd_cv) ----
-
-# Per-model total ELPD, difference from the best model (best = 0, others ≤ 0),
-# and the standard error of that difference from the pointwise contrasts
-# d_i = elpd_{i,best} - elpd_{i,m}: SE ≈ sqrt(n · Var_i(d_i)).
-function elpd_compare(results)
-    models  = unique(results.model)
-    ovaries = sort(unique(results.ovary))
-    E = Dict(m => [only(results.elpd[(results.model .== m) .& (results.ovary .== o)])
-                   for o in ovaries] for m in models)
-    totals = Dict(m => sum(E[m]) for m in models)
-    best = models[argmax([totals[m] for m in models])]
-    rows = [(; model = m,
-               elpd  = totals[m],
-               Δelpd = totals[m] - totals[best],
-               se    = sqrt(length(ovaries) * var(E[best] .- E[m])))
-            for m in models]
-    return sort(DataFrame(rows), :elpd, rev = true)
+# Fold vector that holds out each age group as a whole (leave-one-age-out), for
+# elpd_cv's `folds` argument. Contrast the default (one ovary per fold): here the
+# model is refit with an entire age missing, so scoring the withheld ovaries at
+# that age is a stricter test of the dynamics (no same-age siblings in training).
+function age_folds(data)
+    ages = data.times_unique[data.times_vec]
+    return [findall(==(a), ages) for a in sort(unique(ages))]
 end
 
-# Per-(model, age) total ELPD and ovary count, for the age-resolved comparison.
-function elpd_by_age(results)
-    return sort(combine(groupby(results, [:model, :age]),
-                        :elpd => sum => :elpd, nrow => :n), [:model, :age])
+
+# ---- Model comparison via paired ELPD differences ----------------------------
+
+# ΔELPD of each model relative to the best model (best = highest total ELPD) —
+# the standard leave-one-out comparison. For each held-out ovary i the contrast
+#     d_i = elpd_{i,model} - elpd_{i,best}
+# is a *paired* difference, so the large shared ovary-to-ovary count variance
+# cancels and its spread reflects only how consistently a model beats (or trails)
+# the best one. Within each group we report the summed difference and its paired
+# standard error,
+#     Δelpd = Σ_i d_i,   se = sqrt(n · Var_i(d_i))
+# (the usual loo elpd_diff / se_diff); the best model sits at Δelpd = 0 with se 0.
+#
+# `by` sets the grouping: [:model] for the overall comparison, [:model, :age] for
+# the age-resolved one. `ref` fixes the reference model (its name); by default the
+# best model within `results` (highest total ELPD) is used. Passing an explicit
+# `ref` keeps the zero line on the same model across figures built from different
+# CV runs. Returns (ref_model_name, summary_dataframe with the `by` columns plus
+# :Δelpd, :se, :n).
+function elpd_delta(results; by = [:model], ref = nothing)
+    refmodel = ref
+    if refmodel === nothing
+        totals = combine(groupby(results, :model), :elpd => sum => :total)
+        refmodel = totals.model[argmax(totals.total)]
+    end
+    ref_elpd = Dict(r.ovary => r.elpd for r in eachrow(results[results.model .== refmodel, :]))
+    d = copy(results)
+    d.d = [e - ref_elpd[o] for (o, e) in zip(results.ovary, results.elpd)]   # paired difference
+    summary = combine(groupby(d, by),
+                      :d => sum => :Δelpd,
+                      :d => (x -> sqrt(length(x) * var(x))) => :se,
+                      nrow => :n)
+    return refmodel, summary
 end
