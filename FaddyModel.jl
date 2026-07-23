@@ -54,7 +54,8 @@ savefig("plots/predictive_checks_fixed_rates.pdf")
 @time chain = sample(total_model(counts_2_month, Int64.(input_data), times_vec,
     times_unique,init_priors,π_priors,rate_priors,transition_fcn,coarse_grain),NUTS(),  MCMCThreads(),300,2);
 
-    
+savefig(plot(chain), "plots/Faddy_model_chain.pdf")
+
 sample_fun = make_sample_fun(chain, transition_fcn)
 
 N_samples = 10_000
@@ -81,6 +82,14 @@ param_plots = plot_param_posteriors(chain,
 p_π = plot_π_posterior(chain, π_priors)
 plot(p_π..., param_plots..., layout=(3,3), size=(1000,400), margin=4mm)
 savefig("plots/Faddy_model_fitted_params.pdf")
+
+# Corner plot: pairwise posterior correlations (off-diagonal) + marginals (diagonal)
+# for the physical parameters. The initial hidden-state fractions π_vals are
+# omitted; add "π_vals[k]" keys to include them.
+savefig(corner_plot(chain,
+    ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]", "rate_params[4]"];
+    labels=["μ_N", "p", "μ1", "μ2", "μ3", "θ12"], size=(1200, 1200)),
+    "plots/Faddy_model_corner.pdf")
 
 # Presentation-quality parameter plots
 pres_plots = plot_param_posteriors(chain,

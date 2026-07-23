@@ -83,6 +83,15 @@ p_π = plot_π_posterior(chain, π_priors)
 plot(p_π..., param_plots..., size=(1400,800), margin=4mm)
 savefig("plots/Queuing_model_fitted_params.pdf")
 
+# Corner plot: pairwise posterior correlations (off-diagonal) + marginals (diagonal)
+# for the physical parameters. The 17 initial hidden-state fractions π_vals are
+# omitted (too many); add "π_vals[k]" keys to include specific ones.
+savefig(corner_plot(chain,
+    ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]",
+     "rate_params[4]", "rate_params[5]", "rate_params[6]"];
+    labels=["μ_N", "p", "μ1", "μ2", "μ3", "θ1", "θ2", "θ3"], size=(1500, 1500)),
+    "plots/Queuing_model_corner.pdf")
+
 pres_plots = plot_param_posteriors(chain,
     ["rate_params[2]", "rate_params[3]", "rate_params[4]"],
     rate_priors[2:4],

@@ -1,5 +1,6 @@
 using Plots
 using StatsPlots
+using Statistics
 
 
 # Returns an array of n_obs initialized plots, each with nested credible ribbon bands.
@@ -32,6 +33,39 @@ function plot_param_posteriors(chain, param_keys, priors, x_ranges, labels; ylab
         push!(plots, p)
     end
     return plots
+end
+
+# Corner / pairs plot of selected chain parameters. Lower triangle: pairwise
+# posterior scatter with a least-squares line and the Pearson correlation in the
+# panel title. Diagonal: each parameter's marginal histogram. Upper triangle: left
+# blank. `param_keys` are the chain variable names to include (e.g. "ic[1]",
+# "rate_params[2]"); `labels` are the names shown on the bottom/left axes. Extra
+# kwargs (e.g. size=(1200,1200)) pass through to the assembled plot. Returns the
+# plot; caller does savefig.
+function corner_plot(chain, param_keys; labels=param_keys, kwargs...)
+    labs = String.(collect(labels))
+    cols = [Float64.(vec(chain[key])) for key in param_keys]
+    k = length(cols)
+    panels = Matrix{Any}(undef, k, k)
+    for i in 1:k, j in 1:k
+        if j > i                                    # upper triangle: blank
+            panels[i, j] = plot(framestyle=:none, legend=false)
+        elseif i == j                               # diagonal: marginal histogram
+            panels[i, j] = histogram(cols[i]; normalize=:pdf, legend=false,
+                                     grid=false, yticks=false, fillalpha=0.7, tickfontsize=6)
+        else                                        # lower triangle: scatter + fit line
+            x, y = cols[j], cols[i]
+            panels[i, j] = scatter(x, y; ms=1.5, msw=0, alpha=0.25, legend=false,
+                                   grid=false, tickfontsize=6,
+                                   title="r = $(round(cor(x, y), digits=2))", titlefontsize=7)
+            b = cov(x, y) / var(x)
+            xl = [minimum(x), maximum(x)]
+            plot!(panels[i, j], xl, (mean(y) - b*mean(x)) .+ b .* xl; lc=:black, lw=1, alpha=0.7)
+        end
+        i == k && plot!(panels[i, j]; xlabel=labs[j], xrotation=45)  # bottom row: x labels
+        (j == 1 && i > 1) && plot!(panels[i, j]; ylabel=labs[i])     # left column: y labels
+    end
+    return plot(vec(permutedims(panels))...; layout=(k, k), kwargs...)
 end
 
 # Runs chain_stats_sample and returns (plt_mean, plt_cov) calibration scatter plots.
