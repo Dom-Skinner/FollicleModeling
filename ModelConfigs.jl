@@ -67,9 +67,21 @@ function model_registry()
                 rate_priors    = [μ_priors..., Beta(4, 4), Beta(4, 4), Beta(4, 4),
                                   Exponential(5.0), Exponential(5.0)])
 
-    return [faddy, queuing, paused]
+    # --- Time-dependent Faddy (rate_params = [μ_early, μ_late, μ2, μ3, θ12, θ23]) ---
+    # Faddy topology with a sigmoidal primordial exit μ(t) (τ fixed at 2 months);
+    # μ_early and μ_late reuse the μ1 residence-time prior. See build_timedep_faddy.
+    td = build_timedep_faddy(; t0 = 2.0, τ = 2.0)
+    faddy_td = (; name = "FaddyTimeDep", k = [1, 1, 1], paused = falses(3),
+                  transition_fcn = td.transition_fcn,
+                  coarse_grain   = td.coarse_grain, n_hidden = td.n_hidden,
+                  init_priors    = init_priors,
+                  π_priors       = Dirichlet(ones(td.n_hidden)),
+                  rate_priors    = [μ_priors[1], μ_priors[1], μ_priors[2], μ_priors[3],
+                                    Beta(4, 4), Beta(4, 4)])
+
+    return [faddy, faddy_td, queuing, paused]
 end
 
 
-# Fetch a single model configuration by name ("Faddy", "Queuing", "Paused").
+# Fetch a single model configuration by name ("Faddy", "FaddyTimeDep", "Queuing", "Paused").
 model_config(name) = only(filter(c -> c.name == name, model_registry()))

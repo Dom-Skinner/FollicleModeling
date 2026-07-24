@@ -82,7 +82,7 @@ println()
 # We plot the paired ΔELPD rather than absolute per-ovary ELPD: the latter is
 # dominated by ovary-to-ovary count size (shared across models), which swamps the
 # model differences. The reference model sits on the dashed zero line; below = worse.
-model_order = ["Faddy", "Queuing", "Paused"]                     # simple -> complex
+model_order = ["Faddy", "FaddyTimeDep", "Queuing", "Paused"]     # simple -> complex
 dodge = range(-0.15, 0.15, length = length(model_order))         # separate models at each x
 
 # Panel A: overall, leave-one-ovary-out.

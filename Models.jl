@@ -2,6 +2,7 @@ using Turing
 using ExponentialUtilities
 using NaNMath
 using LinearAlgebra
+using OrdinaryDiffEq
 
 # This file contains the main model, which is agnostsic to the particular observation/model topology strucure.
 
@@ -26,17 +27,47 @@ function finite_transition_matrix(W,t)
     return transition_matrix
 end
 
-function probability_flow(π_vals,W,times_unique)
+# Zero out non-physical occupancy entries (negative, NaN, or Inf), in place.
+function _zero_bad!(v)
+    for i in eachindex(v)
+        (v[i] <= 0 || isnan(v[i]) || isinf(v[i])) && (v[i] = zero(eltype(v)))
+    end
+    return v
+end
+
+# Occupancy vectors Λ(t) = Φ(t) π₀ at each requested time. Constant-generator
+# path: Φ(t) = exp(W (t-2)) via matrix exponential (see finite_transition_matrix).
+function probability_flow(π_vals, W::AbstractMatrix, times_unique)
     Λ_all = Vector{typeof(π_vals)}(undef, length(times_unique))
     for i in 1:length(times_unique)
         transition_matrix = finite_transition_matrix(W, times_unique[i])
-        Λ_all[i] = transition_matrix[:,1:end-1]* π_vals # by convention final column is unobserved state
-        Λ_all[i][Λ_all[i] .<= 0.0] .= 0.0 # Set negative values to zero
-        Λ_all[i][isnan.(Λ_all[i])] .= 0.0 # Set NaN values to zero
-
-        # Λ = exp(W * t)*π 
+        Λ_all[i] = _zero_bad!(transition_matrix[:,1:end-1] * π_vals) # final column is the unobserved state
+        # Λ = exp(W * (t-2)) * π
     end
     return Λ_all
+end
+
+# Time-dependent-generator path: `Wfun` is a callable t -> W(t), and the occupancy
+# is obtained by integrating dp/dt = W(t) p from the initial time t0=2 (see
+# build_timedep_faddy). Returns the same length-n occupancy vectors as the matrix
+# method, evaluated per input-order time via the solver's dense interpolation.
+# Never throws inside NUTS: a non-finite generator or a failed solve returns zeroed
+# occupancy so the proposal is simply rejected.
+function probability_flow(π_vals, Wfun::Function, times_unique;
+                          t0 = 2.0, solver = Tsit5(), reltol = 1e-8, abstol = 1e-10)
+    T = eltype(π_vals)
+    p0 = vcat(π_vals, zero(T))                 # occupancy including the absorbing state
+    bad = [zero(p0) for _ in times_unique]
+    tmax = maximum(times_unique)
+    for tc in (t0, tmax)                       # bracket the μ(t) extremes
+        Wc = Wfun(tc)
+        (any(isnan, Wc) || any(isinf, Wc) || maximum(abs.(Wc)) > 1e10) && return bad
+    end
+    tmax <= t0 && return [_zero_bad!(copy(p0)) for _ in times_unique]
+    sol = solve(ODEProblem((u, _p, t) -> Wfun(t) * u, p0, (t0, tmax)), solver;
+                reltol = reltol, abstol = abstol, verbose = false)
+    OrdinaryDiffEq.SciMLBase.successful_retcode(sol) || return bad
+    return [_zero_bad!(copy(ts <= t0 ? p0 : sol(ts))) for ts in times_unique]
 end
 # The pure-exponential (Faddy) model is just build_queuing_model([1,1,1]) with
 # Primary survival pinned to 1 (no death from Primary/Secondary); see the Faddy
@@ -224,4 +255,29 @@ function build_queuing_model(k::AbstractVector{<:Integer}; paused=falses(length(
     end
 
     return (; transition_fcn, coarse_grain, n_hidden)
+end
+
+
+# ================================ Time-dependent Faddy ================================
+
+# Faddy model with a time-dependent primordial exit. The primordial mean residence
+# time follows a sigmoid (constant atresic fraction), μ(t0)=μ_early -> μ(∞)=μ_late:
+#
+#     μ(t) = μ_late + 2(μ_early - μ_late) / (1 + exp((t - t0)/τ)).
+#
+# The generator at time t is exactly build_queuing_model([1,1,1]) evaluated with the
+# instantaneous μ1 = μ(t) (primary/secondary rates are constant), so `transition_fcn`
+# returns a *callable* t -> W(t). Fed to total_model, this routes through the
+# ODE method of probability_flow (dp/dt = W(t) p) instead of a matrix exponential.
+# rate_params = [μ_early, μ_late, μ2, μ3, θ12, θ23]; τ is fixed (keyword) for now.
+# Returns (; transition_fcn, coarse_grain, n_hidden) like build_queuing_model.
+function build_timedep_faddy(; t0 = 2.0, τ = 2.0)
+    q = build_queuing_model([1, 1, 1])
+    function transition_fcn(rate_params)
+        μ_early, μ_late, μ2, μ3, θ12, θ23 = rate_params
+        μ(t) = μ_late + 2 * (μ_early - μ_late) / (1 + exp((t - t0) / τ))
+        # secondary survival is pinned (last compartment => no effect), as in Faddy
+        return t -> q.transition_fcn([μ(t), μ2, μ3, θ12, θ23, one(eltype(rate_params))])
+    end
+    return (; transition_fcn, coarse_grain = q.coarse_grain, n_hidden = q.n_hidden)
 end
