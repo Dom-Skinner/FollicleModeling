@@ -15,8 +15,8 @@ include("ModelConfigs.jl")
 
 # Model definition (topology + priors) comes from the shared registry so it stays
 # in sync with the other scripts and the cross-validation code. Faddy =
-# build_queuing_model([1,1,1]) with Primary survival pinned to 1; rate_params =
-# [μ1, μ2, μ3, θ12].
+# build_queuing_model([1,1,1]) with primordial and primary survival (θ12, θ23);
+# rate_params = [μ1, μ2, μ3, θ12, θ23].
 (; transition_fcn, coarse_grain, init_priors, π_priors, rate_priors) = model_config("Faddy")
 
 
@@ -75,20 +75,20 @@ savefig("plots/predictive_checks_fitted_rates.pdf")
 
 # prior/posterior check
 param_plots = plot_param_posteriors(chain,
-    ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]", "rate_params[4]"],
+    ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]", "rate_params[4]", "rate_params[5]"],
     [init_priors..., rate_priors...],
-    [1000:5:2500, 0:0.0001:0.015, 0:0.01:9, 0:0.01:3, 0:0.01:2, 0:0.01:1],
-    ["μ_N", "p", "μ1", "μ2", "μ3", "θ12"])
+    [1000:5:2500, 0:0.0001:0.015, 0:0.01:9, 0:0.01:3, 0:0.01:2, 0:0.01:1, 0:0.01:1],
+    ["μ_N", "p", "μ1", "μ2", "μ3", "θ12", "θ23"])
 p_π = plot_π_posterior(chain, π_priors)
-plot(p_π..., param_plots..., layout=(3,3), size=(1000,400), margin=4mm)
+plot(p_π..., param_plots..., layout=(4,3), size=(1000,600), margin=4mm)
 savefig("plots/Faddy_model_fitted_params.pdf")
 
 # Corner plot: pairwise posterior correlations (off-diagonal) + marginals (diagonal)
 # for the physical parameters. The initial hidden-state fractions π_vals are
 # omitted; add "π_vals[k]" keys to include them.
 savefig(corner_plot(chain,
-    ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]", "rate_params[4]"];
-    labels=["μ_N", "p", "μ1", "μ2", "μ3", "θ12"], size=(1200, 1200)),
+    ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]", "rate_params[4]", "rate_params[5]"];
+    labels=["μ_N", "p", "μ1", "μ2", "μ3", "θ12", "θ23"], size=(1300, 1300)),
     "plots/Faddy_model_corner.pdf")
 
 # Presentation-quality parameter plots
@@ -103,10 +103,10 @@ savefig("plots/PosteriorPredsFaddy.pdf")
 
 # ===== Conditional residence-time distributions =====
 # Time a follicle spends in Primary / Secondary GIVEN it successfully progresses
-# out. In the Faddy model Primary and Secondary have no death channel, so every
-# follicle progresses and the residence times are simple exponentials with means
-# μ2 and μ3 (k=1, so conditional and unconditional coincide). Integrates over
-# posterior uncertainty.
+# out (rather than dying via θ23 for Primary, or leaving to the unobserved bin for
+# Secondary). For k=1 the conditional residence time is exponential with mean μ2
+# (resp. μ3) regardless of the survival probability. Integrates over posterior
+# uncertainty.
 primary_times   = posterior_sojourn_times(chain, transition_fcn, coarse_grain, 2; N=50_000)
 secondary_times = posterior_sojourn_times(chain, transition_fcn, coarse_grain, 3; N=50_000)
 

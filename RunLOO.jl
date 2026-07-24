@@ -104,7 +104,7 @@ hline!(pB, [0]; lc = :gray, ls = :dash, label = "")
 for (j, m) in enumerate(model_order)
     sub = sort(dB[dB.model .== m, :], :age)
     xs = [findfirst(==(a), ages_sorted) for a in sub.age] .+ dodge[j]
-    plot!(pB, xs, sub.Δelpd; yerror = sub.se, marker = :circle, ms = 5, msw = 2, lw = 1.5, label = m)
+    scatter!(pB, xs, sub.Δelpd; yerror = sub.se, marker = :circle, ms = 5, msw = 2, lw = 1.5, label = m)
 end
 
 plot(pA, pB, layout = (1, 2), size = (1100, 450), margin = 5mm)

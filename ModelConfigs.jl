@@ -32,17 +32,19 @@ function model_registry()
                 LogNormal(params_logn(μ3_fixed, 0.008)...)]
 
     # --- Faddy / pure-exponential ---
-    # Exactly build_queuing_model([1,1,1]) with Primary survival pinned to 1
-    # (Faddy has no death from Primary/Secondary); the last compartment's survival
-    # is irrelevant, so we pass 1 for it too. rate_params = [μ1, μ2, μ3, θ12].
+    # build_queuing_model([1,1,1]): primordial and primary each carry a survival
+    # parameter (θ12, θ23), i.e. both can undergo atresia. The last compartment
+    # (secondary) sends all exits to the unobserved bin, so for k=1 its survival
+    # has no effect on the generator and we pin it to 1 (leaving it free would just
+    # sample the prior). rate_params = [μ1, μ2, μ3, θ12, θ23].
     fq = build_queuing_model([1, 1, 1])
-    faddy_transition = rp -> fq.transition_fcn(vcat(rp, one(eltype(rp)), one(eltype(rp))))
+    faddy_transition = rp -> fq.transition_fcn(vcat(rp, one(eltype(rp))))
     faddy = (; name = "Faddy", k = [1, 1, 1], paused = falses(3),
                transition_fcn = faddy_transition,
                coarse_grain   = fq.coarse_grain, n_hidden = fq.n_hidden,
                init_priors    = init_priors,
                π_priors       = Dirichlet(ones(fq.n_hidden)),
-               rate_priors    = [μ_priors..., Beta(4, 4)])
+               rate_priors    = [μ_priors..., Beta(4, 4), Beta(4, 4)])
 
     # --- Erlang / queuing (rate_params = [μ1, μ2, μ3, θ1, θ2, θ3]) ---
     k = [1, 8, 8]
