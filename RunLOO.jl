@@ -35,7 +35,7 @@ const RESULTS_FILE = "models/loo_results.jld2"
 # PART 1 — refit + score (expensive; writes RESULTS_FILE)
 # ============================================================
 # ---- Tunables ----
-const N_SAMPLES = 75     # post-warmup draws per chain per fold
+const N_SAMPLES = 40   # post-warmup draws per chain per fold
 const N_CHAINS  = 2
 const SEED      = 1
 # ------------------
@@ -82,7 +82,7 @@ println()
 # We plot the paired ΔELPD rather than absolute per-ovary ELPD: the latter is
 # dominated by ovary-to-ovary count size (shared across models), which swamps the
 # model differences. The reference model sits on the dashed zero line; below = worse.
-model_order = ["Faddy", "FaddyTimeDep", "Queuing", "Paused"]     # simple -> complex
+model_order = ["Faddy", "FaddyTimeDep", "Queuing", "QueuingTimeDep", "Paused", "PausedTimeDep"]  # simple -> complex
 dodge = range(-0.15, 0.15, length = length(model_order))         # separate models at each x
 
 # Panel A: overall, leave-one-ovary-out.

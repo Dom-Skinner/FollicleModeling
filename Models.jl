@@ -3,8 +3,29 @@ using ExponentialUtilities
 using NaNMath
 using LinearAlgebra
 using OrdinaryDiffEq
+using Logging
 
 # This file contains the main model, which is agnostsic to the particular observation/model topology strucure.
+
+# --- Suppress one spurious deprecation warning from the ODE solves ---------------
+# OrdinaryDiffEq 6.25 builds solutions with a Symbol retcode, and the newer SciMLBase
+# in this environment converts it to the ReturnCode enum on every solve, each time
+# emitting a "Backwards compatability support of the new return codes..." @warn. NUTS
+# solves the ODE once per gradient step, so this floods the log. The conversion is
+# harmless (the retcode is read correctly), so we drop just that one message and
+# forward everything else. `quiet_solve(f)` runs `f` under this filter.
+struct _DropMsgLogger{L <: AbstractLogger} <: AbstractLogger
+    parent::L
+    prefix::String
+end
+Logging.min_enabled_level(l::_DropMsgLogger) = Logging.min_enabled_level(l.parent)
+Logging.shouldlog(l::_DropMsgLogger, args...) = Logging.shouldlog(l.parent, args...)
+Logging.catch_exceptions(l::_DropMsgLogger) = Logging.catch_exceptions(l.parent)
+function Logging.handle_message(l::_DropMsgLogger, level, message, args...; kwargs...)
+    startswith(string(message), l.prefix) && return nothing
+    Logging.handle_message(l.parent, level, message, args...; kwargs...)
+end
+quiet_solve(f) = with_logger(f, _DropMsgLogger(current_logger(), "Backwards compatability support"))
 
 function finite_transition_matrix(W,t)
     
@@ -64,8 +85,10 @@ function probability_flow(π_vals, Wfun::Function, times_unique;
         (any(isnan, Wc) || any(isinf, Wc) || maximum(abs.(Wc)) > 1e10) && return bad
     end
     tmax <= t0 && return [_zero_bad!(copy(p0)) for _ in times_unique]
-    sol = solve(ODEProblem((u, _p, t) -> Wfun(t) * u, p0, (t0, tmax)), solver;
-                reltol = reltol, abstol = abstol, verbose = false)
+    sol = quiet_solve() do
+        solve(ODEProblem((u, _p, t) -> Wfun(t) * u, p0, (t0, tmax)), solver;
+              reltol = reltol, abstol = abstol, verbose = false)
+    end
     OrdinaryDiffEq.SciMLBase.successful_retcode(sol) || return bad
     return [_zero_bad!(copy(ts <= t0 ? p0 : sol(ts))) for ts in times_unique]
 end
@@ -258,26 +281,38 @@ function build_queuing_model(k::AbstractVector{<:Integer}; paused=falses(length(
 end
 
 
-# ================================ Time-dependent Faddy ================================
+# ================================ Time-dependent primordial exit ================================
 
-# Faddy model with a time-dependent primordial exit. The primordial mean residence
-# time follows a sigmoid (constant atresic fraction), μ(t0)=μ_early -> μ(∞)=μ_late:
+# Wrap any base model (a `(transition_fcn, coarse_grain, n_hidden)` NamedTuple whose
+# rate_params start with the primordial mean residence μ1) so that the primordial exit
+# becomes time-dependent. The primordial residence time follows a sigmoid (constant
+# atresic fraction), μ(t0)=μ_early -> μ(∞)=μ_late:
 #
 #     μ(t) = μ_late + 2(μ_early - μ_late) / (1 + exp((t - t0)/τ)).
 #
-# The generator at time t is exactly build_queuing_model([1,1,1]) evaluated with the
-# instantaneous μ1 = μ(t) (primary/secondary rates are constant), so `transition_fcn`
-# returns a *callable* t -> W(t). Fed to total_model, this routes through the
-# ODE method of probability_flow (dp/dt = W(t) p) instead of a matrix exponential.
-# rate_params = [μ_early, μ_late, μ2, μ3, θ12, θ23]; τ is fixed (keyword) for now.
-# Returns (; transition_fcn, coarse_grain, n_hidden) like build_queuing_model.
+# The generator at time t is exactly the base generator with the instantaneous μ1 = μ(t)
+# (all other rates constant), so the wrapped `transition_fcn` returns a *callable*
+# t -> W(t). Fed to total_model, this routes through the ODE method of probability_flow
+# (dp/dt = W(t) p) instead of a matrix exponential. The new rate_params replace μ1 by
+# (μ_early, μ_late): [μ_early, μ_late, <rest of the base's rate_params>]. τ is fixed
+# (keyword) for now. Works for any model whose primordial compartment is compartment 1
+# with k=1 (Faddy, Queuing, Paused). Returns (; transition_fcn, coarse_grain, n_hidden).
+function build_timedep(base; t0 = 2.0, τ = 2.0)
+    function transition_fcn(rate_params)
+        μ_early, μ_late = rate_params[1], rate_params[2]
+        rest = rate_params[3:end]                      # μ2, μ3, θ…, (pause…)
+        μ(t) = μ_late + 2 * (μ_early - μ_late) / (1 + exp((t - t0) / τ))
+        return t -> base.transition_fcn(vcat(μ(t), rest))   # callable t -> W(t)
+    end
+    return (; transition_fcn, coarse_grain = base.coarse_grain, n_hidden = base.n_hidden)
+end
+
+# Time-dependent Faddy: build_timedep over the Faddy base (queuing([1,1,1]) with the
+# secondary survival pinned, as in the constant Faddy). rate_params = [μ_early, μ_late,
+# μ2, μ3, θ12, θ23].
 function build_timedep_faddy(; t0 = 2.0, τ = 2.0)
     q = build_queuing_model([1, 1, 1])
-    function transition_fcn(rate_params)
-        μ_early, μ_late, μ2, μ3, θ12, θ23 = rate_params
-        μ(t) = μ_late + 2 * (μ_early - μ_late) / (1 + exp((t - t0) / τ))
-        # secondary survival is pinned (last compartment => no effect), as in Faddy
-        return t -> q.transition_fcn([μ(t), μ2, μ3, θ12, θ23, one(eltype(rate_params))])
-    end
-    return (; transition_fcn, coarse_grain = q.coarse_grain, n_hidden = q.n_hidden)
+    faddy_base = (; transition_fcn = rp -> q.transition_fcn(vcat(rp, one(eltype(rp)))),
+                    coarse_grain = q.coarse_grain, n_hidden = q.n_hidden)
+    return build_timedep(faddy_base; t0 = t0, τ = τ)
 end

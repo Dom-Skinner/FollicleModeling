@@ -67,9 +67,11 @@ function model_registry()
                 rate_priors    = [μ_priors..., Beta(4, 4), Beta(4, 4), Beta(4, 4),
                                   Exponential(5.0), Exponential(5.0)])
 
-    # --- Time-dependent Faddy (rate_params = [μ_early, μ_late, μ2, μ3, θ12, θ23]) ---
-    # Faddy topology with a sigmoidal primordial exit μ(t) (τ fixed at 2 months);
-    # μ_early and μ_late reuse the μ1 residence-time prior. See build_timedep_faddy.
+    # --- Time-dependent variants: primordial exit μ1 -> μ(t) (sigmoid, τ fixed at 2
+    # months). Each wraps the corresponding base model with build_timedep, which splits
+    # the first rate param into (μ_early, μ_late); both reuse the μ1 residence prior. ---
+
+    # FaddyTimeDep: rate_params = [μ_early, μ_late, μ2, μ3, θ12, θ23]
     td = build_timedep_faddy(; t0 = 2.0, τ = 2.0)
     faddy_td = (; name = "FaddyTimeDep", k = [1, 1, 1], paused = falses(3),
                   transition_fcn = td.transition_fcn,
@@ -79,9 +81,31 @@ function model_registry()
                   rate_priors    = [μ_priors[1], μ_priors[1], μ_priors[2], μ_priors[3],
                                     Beta(4, 4), Beta(4, 4)])
 
-    return [faddy, faddy_td, queuing, paused]
+    # QueuingTimeDep: rate_params = [μ_early, μ_late, μ2, μ3, θ1, θ2, θ3]
+    qtd = build_timedep(q; t0 = 2.0, τ = 2.0)
+    queuing_td = (; name = "QueuingTimeDep", k = k, paused = falses(3),
+                    transition_fcn = qtd.transition_fcn,
+                    coarse_grain   = qtd.coarse_grain, n_hidden = qtd.n_hidden,
+                    init_priors    = init_priors,
+                    π_priors       = Dirichlet(ones(qtd.n_hidden)),
+                    rate_priors    = [μ_priors[1], μ_priors[1], μ_priors[2], μ_priors[3],
+                                      Beta(4, 4), Beta(4, 4), Beta(4, 4)])
+
+    # PausedTimeDep: rate_params = [μ_early, μ_late, μ2, μ3, θ1, θ2, θ3, μ_pause_primary, μ_pause_secondary]
+    ptd = build_timedep(p; t0 = 2.0, τ = 2.0)
+    paused_td = (; name = "PausedTimeDep", k = k, paused = paused_flags,
+                   transition_fcn = ptd.transition_fcn,
+                   coarse_grain   = ptd.coarse_grain, n_hidden = ptd.n_hidden,
+                   init_priors    = init_priors,
+                   π_priors       = Dirichlet(ones(ptd.n_hidden)),
+                   rate_priors    = [μ_priors[1], μ_priors[1], μ_priors[2], μ_priors[3],
+                                     Beta(4, 4), Beta(4, 4), Beta(4, 4),
+                                     Exponential(5.0), Exponential(5.0)])
+
+    return [faddy, faddy_td, queuing, queuing_td, paused, paused_td]
 end
 
 
-# Fetch a single model configuration by name ("Faddy", "FaddyTimeDep", "Queuing", "Paused").
+# Fetch a single model configuration by name ("Faddy", "FaddyTimeDep", "Queuing",
+# "QueuingTimeDep", "Paused", "PausedTimeDep").
 model_config(name) = only(filter(c -> c.name == name, model_registry()))
