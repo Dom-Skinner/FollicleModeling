@@ -75,7 +75,7 @@ end
 # Never throws inside NUTS: a non-finite generator or a failed solve returns zeroed
 # occupancy so the proposal is simply rejected.
 function probability_flow(π_vals, Wfun::Function, times_unique;
-                          t0 = 2.0, solver = Tsit5(), reltol = 1e-8, abstol = 1e-10)
+                          t0 = 2.0, solver = Tsit5(), reltol = 1e-6, abstol = 1e-8)
     T = eltype(π_vals)
     p0 = vcat(π_vals, zero(T))                 # occupancy including the absorbing state
     bad = [zero(p0) for _ in times_unique]
