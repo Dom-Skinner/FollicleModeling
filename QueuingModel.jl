@@ -1,5 +1,4 @@
 using Plots
-using AugmentedGPLikelihoods
 using StatsPlots
 using Measures
 using Random

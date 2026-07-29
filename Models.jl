@@ -5,6 +5,8 @@ using LinearAlgebra
 using OrdinaryDiffEq
 using Logging
 
+include(joinpath(@__DIR__, "NegativeMultinomial.jl"))   # vendored; replaces AugmentedGPLikelihoods
+
 # This file contains the main model, which is agnostsic to the particular observation/model topology strucure.
 
 # --- Suppress one spurious deprecation warning from the ODE solves ---------------
@@ -117,7 +119,7 @@ end
     end
 
     for i in 1:size(initial_values, 1)
-        initial_values[i,:] ~ AugmentedGPLikelihoods.SpecialDistributions.NegativeMultinomial(r, π_k)
+        initial_values[i,:] ~ NegativeMultinomial(r, π_k)
     end
     
     if length(times_unique) == 0
@@ -139,7 +141,7 @@ end
             π_k = π_k ./ (sum(π_k) + 1e-9)
         end
         #π_k = π_k ./ (sum(π_k) + 1e-9)
-        observations[i,:] ~ AugmentedGPLikelihoods.SpecialDistributions.NegativeMultinomial(r, π_k)
+        observations[i,:] ~ NegativeMultinomial(r, π_k)
     end
 
 end
@@ -171,7 +173,7 @@ function sample_model(chain,t, transition_matrix_fcn)
     a_k = Λ_all[1][1:end-1] # final state considered unobserved
     A = sum(a_k)
     π_k = clamp.(a_k ./ (A + b),1e-10,1-1e-9)
-    return rand(AugmentedGPLikelihoods.SpecialDistributions.NegativeMultinomial(r, π_k))
+    return rand(NegativeMultinomial(r, π_k))
     
 end
 

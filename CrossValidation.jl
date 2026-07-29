@@ -18,7 +18,6 @@ using DataFrames
 using Turing
 using Random
 using Statistics
-using AugmentedGPLikelihoods
 
 
 # Log-likelihood of one observed ovary `y_i` at `age` under one posterior draw,
@@ -40,7 +39,7 @@ function pointwise_loglik(draw::NamedTuple, config, y_i, age)
     if sum(π_k) > 1 - 1e-10
         π_k = π_k ./ (sum(π_k) + 1e-9)
     end
-    return logpdf(AugmentedGPLikelihoods.SpecialDistributions.NegativeMultinomial(r, π_k), Int.(y_i))
+    return logpdf(NegativeMultinomial(r, π_k), Int.(y_i))
 end
 
 
