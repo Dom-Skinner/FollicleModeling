@@ -38,16 +38,21 @@ println()
 # We plot the paired ΔELPD rather than absolute per-ovary ELPD: the latter is
 # dominated by ovary-to-ovary count size (shared across models), which swamps the
 # model differences. The reference model sits on the dashed zero line; below = worse.
-model_order = ["Faddy", "FaddyTimeDep", "Queuing", "QueuingTimeDep", "Paused", "PausedTimeDep"]  # simple -> complex
-dodge = range(-0.15, 0.15, length = length(model_order))         # separate models at each x
+# Simple -> complex order, restricted to the models actually present in the results
+# (a partial run — e.g. only the non-time-dependent models — must still plot; an
+# absent model would otherwise feed an empty series to GR and crash savefig).
+model_order = ["Faddy", "FaddyTimeDep", "Queuing", "QueuingTimeDep", "Paused", "PausedTimeDep"]
+present     = filter(m -> m in results_ovary.model, model_order)
+dodge       = range(-0.15, 0.15, length = max(length(present), 1))   # separate models at each x
 
 # Panel A: overall, leave-one-ovary-out.
 pA = plot(title = "Panel A: overall (leave-one-ovary-out)", ylabel = "ΔELPD vs $ref",
           xlabel = "", xticks = ([1], ["all ages"]), xlims = (0.5, 1.5),
           grid = false, legend = :bottomright)
 hline!(pA, [0]; lc = :gray, ls = :dash, label = "")
-for (j, m) in enumerate(model_order)
+for (j, m) in enumerate(present)
     row = dA[dA.model .== m, :]
+    isempty(row) && continue
     scatter!(pA, [1 + dodge[j]], row.Δelpd; yerror = row.se, label = m, ms = 7, msw = 2)
 end
 
@@ -57,8 +62,9 @@ pB = plot(title = "Panel B: by age (leave-one-age-out)", ylabel = "ΔELPD vs $re
           xlabel = "Age (months)", xticks = (1:length(ages_sorted), string.(Int.(ages_sorted))),
           grid = false, legend = false)
 hline!(pB, [0]; lc = :gray, ls = :dash, label = "")
-for (j, m) in enumerate(model_order)
+for (j, m) in enumerate(present)
     sub = sort(dB[dB.model .== m, :], :age)
+    isempty(sub) && continue
     xs = [findfirst(==(a), ages_sorted) for a in sub.age] .+ dodge[j]
     scatter!(pB, xs, sub.Δelpd; yerror = sub.se, marker = :circle, ms = 5, msw = 2, lw = 1.5, label = m)
 end
