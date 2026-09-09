@@ -1,4 +1,8 @@
 Manifest.toml
 OldCode/*
 plots/*
-.DS_Store
+PaperFigs/*
+docs/*
+models/*
+test/*
+**/.DS_Store
