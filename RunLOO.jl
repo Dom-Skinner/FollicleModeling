@@ -25,8 +25,8 @@ using DataFrames
 using Statistics
 using Plots, StatsPlots, Measures
 
-include("ModelConfigs.jl")
-include("CrossValidation.jl")
+include("src/ModelConfigs.jl")
+include("src/CrossValidation.jl")
 
 const RESULTS_FILE = "models/loo_results.jld2"
 

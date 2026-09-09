@@ -35,27 +35,43 @@ Additional parameters: tbd.
 
 ## File structure
 
+Library code lives in `src/`; everything at the top level is a runnable script.
+
 ```
 FollicleModeling/
-├── Models.jl          # Turing model definitions: total_model, pausing_model, queuing_model
-│                      # and their sampling functions; transition matrix constructors
-├── Utils.jl           # Helper functions: data loading, credible intervals, multinomial
-│                      # approximation, empirical statistics
-├── PlotUtils.jl       # Plotting helpers: posterior credible ribbons, calibration plots
-├── FaddyModel.jl      # Full Faddy analysis: fit, predictive checks, parameter posteriors
-├── PausingModel.jl    # Full pausing-model analysis
-├── QueuingModel.jl    # Full queuing-model analysis
-├── InitialCondition.jl # Focused analysis of 2-month data only (prior/posterior for IC)
-├── PriorPredictive.jl # Minimal prior predictive example (old)
-├── data/              # Raw CSV/Excel follicle count data
-├── models/            # Saved MCMC chains (.jld2)
-├── plots/             # Output figures
-└── docs/              # notes.tex (full math) + References.bib
+├── src/
+│   ├── Models.jl           # Turing model definitions: total_model and its sampling
+│   │                       # functions; transition matrix constructors; model builders
+│   ├── NegativeMultinomial.jl # Vendored NegativeMultinomial distribution (from
+│   │                       # AugmentedGPLikelihoods, MIT); included by Models.jl
+│   ├── Utils.jl            # Helper functions: data loading, credible intervals,
+│   │                       # multinomial approximation, empirical statistics
+│   ├── PlotUtils.jl        # Plotting helpers: posterior credible ribbons, corner plots,
+│   │                       # calibration plots
+│   ├── ModelConfigs.jl     # Model registry: topology + priors for every candidate model,
+│   │                       # the single source of truth used by scripts and CV alike
+│   └── CrossValidation.jl  # Pointwise log-likelihood, elpd_cv, fold construction
+├── FaddyModel.jl           # Full Faddy analysis: fit, predictive checks, parameter posteriors
+├── PausingModel.jl         # Full pausing-model analysis
+├── QueuingModel.jl         # Full queuing (Erlang) model analysis
+├── TimeDepModel.jl         # Faddy with a time-dependent rate μ(t) (ODE propagator)
+├── QueuingTimeDepModel.jl  # Queuing model with time-dependent μ(t)
+├── PausedTimeDepModel.jl   # Pausing model with time-dependent μ(t)
+├── InitialCondition.jl     # Focused analysis of 2-month data only (prior/posterior for IC)
+├── PriorPredictive.jl      # Minimal prior predictive example (old)
+├── RunLOO.jl               # Serial leave-one-out cross-validation: fit folds, then plot
+├── loo/                    # Parallel LOO via Snakemake: fit_fold.jl, combine.jl, plot_loo.jl
+│                           # (driven by the Snakefile; see docs/LOO_instructions.md)
+├── test/runtests.jl        # Unit tests for the model and utility code
+├── data/                   # Raw CSV/Excel follicle count data
+├── models/                 # Saved MCMC chains (.jld2)
+├── plots/                  # Output figures
+└── docs/                   # notes.tex (full math) + References.bib
 ```
 
 ## Running the analyses
 
-Each analysis script is self-contained and can be run from the project root. They all call `include("Models.jl")`, `include("Utils.jl")`, and `include("PlotUtils.jl")` at the top, so no package installation step is needed beyond the standard `Pkg.instantiate()`.
+Each analysis script is self-contained and should be run from the project root (data and plot paths are relative to it). They pull in the library code with `include("src/Models.jl")`, `include("src/Utils.jl")`, and so on, so no package installation step is needed beyond the standard `Pkg.instantiate()`.
 
 ```julia
 # Install dependencies (first time only)
@@ -66,17 +82,19 @@ using Pkg; Pkg.instantiate()
 
 | Function | File | Description |
 |---|---|---|
-| `extract_data()` | Utils.jl | Load CSV → 5 count matrices (one per timepoint) |
-| `finite_transition_matrix(W, t)` | Models.jl | Compute exp(W·(t−2)) with numerical safeguards |
-| `probability_flow(π₀, W, times)` | Models.jl | Trajectory: [θ(t₁), θ(t₂), …] |
-| `confidence_intervals(f, t)` | Utils.jl | Posterior predictive quantiles for any scalar function |
-| `chain_stats_sample(sample_fun, ...)` | Utils.jl | Replicated posterior predictive mean/cov quantiles |
-| `plot_empirical_stats(...)` | PlotUtils.jl | Calibration scatter: empirical vs model mean/covariance |
-| `params_logn(mean, var)` | Utils.jl | LogNormal(μ,σ) parameters matching given mean and variance |
+| `extract_data()` | src/Utils.jl | Load CSV → 5 count matrices (one per timepoint) |
+| `finite_transition_matrix(W, t)` | src/Models.jl | Compute exp(W·(t−2)) with numerical safeguards |
+| `probability_flow(π₀, W, times)` | src/Models.jl | Trajectory: [θ(t₁), θ(t₂), …] |
+| `confidence_intervals(f, t)` | src/Utils.jl | Posterior predictive quantiles for any scalar function |
+| `chain_stats_sample(sample_fun, ...)` | src/Utils.jl | Replicated posterior predictive mean/cov quantiles |
+| `plot_empirical_stats(...)` | src/PlotUtils.jl | Calibration scatter: empirical vs model mean/covariance |
+| `params_logn(mean, var)` | src/Utils.jl | LogNormal(μ,σ) parameters matching given mean and variance |
+| `model_config(name)` | src/ModelConfigs.jl | Fetch one model's topology + priors from the registry |
+| `elpd_cv(...)` | src/CrossValidation.jl | Cross-validated expected log predictive density |
 
 ## Dependencies
 
-Core: `Turing`, `ExponentialUtilities`, `AugmentedGPLikelihoods` (for `NegativeMultinomial`), `LinearAlgebra`, `NaNMath`
+Core: `Turing`, `ExponentialUtilities`, `LinearAlgebra`, `NaNMath`, `OrdinaryDiffEq` (time-dependent models). `NegativeMultinomial` is vendored in `src/NegativeMultinomial.jl` (from AugmentedGPLikelihoods, MIT) and needs only `Distributions` and `SpecialFunctions`.
 
 Data/IO: `DataFrames`, `CSV`, `JLD2`
 

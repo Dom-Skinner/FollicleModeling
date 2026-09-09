@@ -12,8 +12,8 @@
 # under `script:` @__DIR__ points at Snakemake's temp wrapper, not the repo.
 
 const ROOT = snakemake.params["root"]
-include(joinpath(ROOT, "ModelConfigs.jl"))
-include(joinpath(ROOT, "CrossValidation.jl"))
+include(joinpath(ROOT, "src", "ModelConfigs.jl"))
+include(joinpath(ROOT, "src", "CrossValidation.jl"))
 using CSV, DataFrames
 
 scheme    = snakemake.params["scheme"]                 # "ovary" or "age"

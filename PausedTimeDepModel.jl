@@ -4,10 +4,10 @@ using Measures
 using Random
 using JLD2
 
-include("Models.jl")
-include("Utils.jl")
-include("PlotUtils.jl")
-include("ModelConfigs.jl")
+include("src/Models.jl")
+include("src/Utils.jl")
+include("src/PlotUtils.jl")
+include("src/ModelConfigs.jl")
 
 (; counts_2_month, counts_4_month, counts_6_month, counts_9_month, counts_12_month,
    input_data, times_unique, times_vec) = load_training_data()

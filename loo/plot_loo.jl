@@ -11,8 +11,8 @@ using DataFrames
 using Statistics
 using Plots, StatsPlots, Measures
 
-include(joinpath(ROOT, "ModelConfigs.jl"))
-include(joinpath(ROOT, "CrossValidation.jl"))          # elpd_delta
+include(joinpath(ROOT, "src", "ModelConfigs.jl"))
+include(joinpath(ROOT, "src", "CrossValidation.jl"))   # elpd_delta
 
 resultsfile = snakemake.input["results"]
 figfile     = snakemake.output["figure"]

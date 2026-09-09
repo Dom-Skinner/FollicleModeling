@@ -5,8 +5,8 @@ using Random
 using Statistics
 using Distributions
 
-include("Models.jl")
-include("Utils.jl")
+include("src/Models.jl")
+include("src/Utils.jl")
 
 # Purpose: compare two maximum-likelihood models for the 2-month counts and show,
 # per follicle class, how well each reproduces the data's distribution (CDF):

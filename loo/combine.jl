@@ -10,7 +10,7 @@
 # different path from RunLOO's models/loo_results.jld2, so the two never clobber.
 
 const ROOT = snakemake.params["root"]
-include(joinpath(ROOT, "Utils.jl"))                    # load_training_data (for the guards)
+include(joinpath(ROOT, "src", "Utils.jl"))             # load_training_data (for the guards)
 using CSV, DataFrames, JLD2
 
 read_rows(files) =
