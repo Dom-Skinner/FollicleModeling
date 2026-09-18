@@ -77,7 +77,6 @@ using Pkg; Pkg.instantiate()
 | Function | File | Description |
 |---|---|---|
 | `extract_data()` | src/Utils.jl | Load CSV → 5 count matrices (one per timepoint) |
-| `finite_transition_matrix(W, t)` | src/Models.jl | Compute exp(W·(t−2)) with numerical safeguards |
 | `probability_flow(π₀, W, times)` | src/Models.jl | Trajectory: [θ(t₁), θ(t₂), …] |
 | `confidence_intervals(f, t)` | src/Utils.jl | Posterior predictive quantiles for any scalar function |
 | `chain_stats_sample(sample_fun, ...)` | src/Utils.jl | Replicated posterior predictive mean/cov quantiles |

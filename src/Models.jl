@@ -29,26 +29,6 @@ function Logging.handle_message(l::_DropMsgLogger, level, message, args...; kwar
 end
 quiet_solve(f) = with_logger(f, _DropMsgLogger(current_logger(), "Backwards compatability support"))
 
-function finite_transition_matrix(W,t)
-    
-    if any(isnan, W) || any(isinf, W) || maximum(abs.(W)) > 1e10
-        return W *t # don't throw error for bad theta choice
-    end
-    #@info "W matrix" W minimum(W) maximum(W) isnan.(W) isinf.(W)
-    transition_matrix = exponential!(W * (t - 2.0)) # t=2.0 is the initial time! 
-    #=
-        try
-            transition_matrix = exponential!(W * (t - 2.0)) # t=2.0 is the initial time! 
-            return transition_matrix
-        catch 
-            @warning "Error in finite_transition_matrix: W matrix is not finite or too large"
-            Turing.@addlogprob!(-Inf) # try to avoid NaN params
-            return
-        end
-    end
-    =#
-    return transition_matrix
-end
 
 # Zero out non-physical occupancy entries (negative, NaN, or Inf), in place.
 function _zero_bad!(v)
@@ -59,11 +39,11 @@ function _zero_bad!(v)
 end
 
 # Occupancy vectors Λ(t) = Φ(t) π₀ at each requested time. Constant-generator
-# path: Φ(t) = exp(W (t-2)) via matrix exponential (see finite_transition_matrix).
+# path: Φ(t) = exp(W (t-2)) via matrix exponential.
 function probability_flow(π_vals, W::AbstractMatrix, times_unique)
     Λ_all = Vector{typeof(π_vals)}(undef, length(times_unique))
     for i in 1:length(times_unique)
-        transition_matrix = finite_transition_matrix(W, times_unique[i])
+        transition_matrix = exponential!(W * (times_unique[i] - 2.0)) # t=2.0 is the initial time! 
         Λ_all[i] = _zero_bad!(transition_matrix[:,1:end-1] * π_vals) # final column is the unobserved state
         # Λ = exp(W * (t-2)) * π
     end
