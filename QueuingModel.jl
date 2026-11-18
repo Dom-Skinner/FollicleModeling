@@ -52,6 +52,7 @@ savefig("plots/Queuing_predictive_checks_fixed_rates.pdf")
 
 @time chain = sample(total_model(counts_2_month, Int64.(input_data), times_vec,
     times_unique,init_priors,π_priors,rate_priors,transition_fcn,coarse_grain),NUTS(),  MCMCThreads(),300,2);
+jldsave("models/Queuing_chain.jld2"; chain)   # loaded by SimulateOvary.jl
 
 savefig(plot(chain), "plots/Queuing_model_chain.pdf")
 

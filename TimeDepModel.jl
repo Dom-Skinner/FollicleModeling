@@ -51,6 +51,7 @@ savefig("plots/TimeDep_predictive_checks_fixed_rates.pdf")
 
 @time chain = sample(total_model(counts_2_month, Int64.(input_data), times_vec,
     times_unique,init_priors,π_priors,rate_priors,transition_fcn,coarse_grain),NUTS(),  MCMCThreads(),300,2);
+jldsave("models/FaddyTimeDep_chain.jld2"; chain)   # loaded by SimulateOvary.jl
 
 savefig(plot(chain), "plots/TimeDep_model_chain.pdf")
 
@@ -70,6 +71,10 @@ savefig("plots/TimeDep_model_fitted_rates.pdf")
 plt_mean, plt_cov = calibration_plots(sample_fun, input_data, times_vec, times_unique, mean_data, cov_data)
 plot(plt_mean, plt_cov)
 savefig("plots/TimeDep_predictive_checks_fitted_rates.pdf")
+
+# Cumulative follicles that have left Secondary (to tertiary or atresia) since 2 months
+savefig(exited_follicles_plot(chain, transition_fcn, coarse_grain, t_vals; N_samples),
+        "plots/TimeDep_model_exited_follicles.pdf")
 
 # prior/posterior check
 param_plots = plot_param_posteriors(chain,

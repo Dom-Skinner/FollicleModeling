@@ -42,6 +42,12 @@ end
 # path: Φ(t) = exp(W (t-2)) via matrix exponential.
 function probability_flow(π_vals, W::AbstractMatrix, times_unique)
     Λ_all = Vector{typeof(π_vals)}(undef, length(times_unique))
+    # Never throw inside NUTS: a non-finite or absurdly large generator (extreme warmup
+    # proposal) returns zeroed occupancy so the proposal is simply rejected, as in the
+    # ODE method below. (exponential! errors on such matrices.)
+    if any(x -> !isfinite(x) || abs(x) > 1e10, W)
+        return [zero(similar(π_vals, size(W, 1))) for _ in times_unique]
+    end
     for i in 1:length(times_unique)
         transition_matrix = exponential!(W * (times_unique[i] - 2.0)) # t=2.0 is the initial time!
         # Only the hidden states carry initial mass; any trailing states (the unobserved

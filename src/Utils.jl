@@ -143,6 +143,64 @@ function posterior_sojourn_times(chain, transition_fcn, coarse_grain, c; N=10_00
 end
 
 
+# ---- Full-ovary stochastic simulation (for visualization) ---------------------
+
+# Simulate every follicle of one ovary from t0 to t1 for a single parameter draw
+# `samp` (a NamedTuple from rand_draw(chain)). The total follicle number is drawn
+# Gamma-Poisson with the fitted (μ_N, p), so it has the likelihood's NegativeMultinomial
+# marginals; initial hidden states are drawn from π_vals and each follicle then follows
+# its own CTMC (Gillespie) under the generator augmented by with_exit_counter, so that
+# leaving Secondary is distinguished from dying earlier.
+#
+# Only changes of *category* are recorded (moves between hidden substates of the same
+# compartment are not). Categories: 1..C = observed compartments, C+1 = exited the last
+# compartment (tertiary or atresia), C+2 = died. Returns a NamedTuple of plain arrays
+# (safe to jldsave): t0, t1, categories, initial (category per follicle), and the
+# time-sorted event list event_time / event_follicle / event_to.
+#
+# Time-dependent generators (the TimeDep models, where transition_fcn returns t -> W(t))
+# are handled exactly by thinning: jumps are proposed at λmax[s], an upper bound on the
+# exit rate of state s over [t0, t1], and accepted with probability rate_s(t)/λmax[s].
+# For a constant generator this is just Gillespie with a few rejected proposals.
+function simulate_ovary(samp, transition_fcn, coarse_grain; t0=2.0, t1=12.0)
+    C, n_hidden = size(coarse_grain)
+    W_ex = with_exit_counter(transition_fcn, coarse_grain).transition_fcn(extract_array(samp, "rate_params"))
+    Wt = W_ex isa Function ? W_ex : (_ -> W_ex)               # generator as a function of time
+    # Bound on each state's exit rate: max over a time grid, plus 5% headroom.
+    λmax = 1.05 .* vec(maximum(stack([-diag(Wt(t)) for t in range(t0, t1, length=201)]), dims=2))
+    category = vcat([findfirst(>(0), coarse_grain[:, j]) for j in 1:n_hidden], C + 1, C + 2)
+
+    μ, p = extract_array(samp, "ic")
+    r, b = p * μ / (1 - p), p / (1 - p)
+    N = rand(Poisson(rand(Gamma(r, 1 / b))))               # total follicles (mean μ_N)
+    π_vals = extract_array(samp, "π_vals")
+    state0 = rand(Categorical(π_vals ./ sum(π_vals)), N)   # initial hidden state per follicle
+
+    event_time, event_follicle, event_to = Float64[], Int[], Int[]
+    for i in 1:N
+        s, t = state0[i], t0
+        while λmax[s] > 0                                   # until absorbed (exited / died)
+            t += -log(rand()) / λmax[s]                     # proposed jump time
+            t > t1 && break
+            W = Wt(t)
+            rate = -W[s, s]
+            rate > λmax[s] && error("simulate_ovary: rate bound violated; refine the λmax grid")
+            rand() * λmax[s] > rate && continue             # thinning: reject proposal
+            w = max.(W[:, s], 0)                            # off-diagonal jump rates
+            s_new = rand(Categorical(w ./ sum(w)))
+            if category[s_new] != category[s]
+                push!(event_time, t); push!(event_follicle, i); push!(event_to, category[s_new])
+            end
+            s = s_new
+        end
+    end
+    order = sortperm(event_time)
+    return (; t0, t1, categories = vcat(["Primordial", "Primary", "Secondary"][1:C], "Exited secondary", "Died"),
+              initial = category[state0], event_time = event_time[order],
+              event_follicle = event_follicle[order], event_to = event_to[order])
+end
+
+
 function empirical_stats(input_data,times_vec)
     times_unique = sort(unique(times_vec))
     mean_stats = [mean(input_data[times_vec .== t,:], dims=1) for t in times_unique]
