@@ -43,8 +43,10 @@ end
 function probability_flow(π_vals, W::AbstractMatrix, times_unique)
     Λ_all = Vector{typeof(π_vals)}(undef, length(times_unique))
     for i in 1:length(times_unique)
-        transition_matrix = exponential!(W * (times_unique[i] - 2.0)) # t=2.0 is the initial time! 
-        Λ_all[i] = _zero_bad!(transition_matrix[:,1:end-1] * π_vals) # final column is the unobserved state
+        transition_matrix = exponential!(W * (times_unique[i] - 2.0)) # t=2.0 is the initial time!
+        # Only the hidden states carry initial mass; any trailing states (the unobserved
+        # bin, plus e.g. the exit counter of with_exit_counter) start empty.
+        Λ_all[i] = _zero_bad!(transition_matrix[:,1:length(π_vals)] * π_vals)
         # Λ = exp(W * (t-2)) * π
     end
     return Λ_all
@@ -59,7 +61,8 @@ end
 function probability_flow(π_vals, Wfun::Function, times_unique;
                           t0 = 2.0, solver = Tsit5(), reltol = 1e-6, abstol = 1e-8)
     T = eltype(π_vals)
-    p0 = vcat(π_vals, zero(T))                 # occupancy including the absorbing state
+    n_extra = size(Wfun(t0), 1) - length(π_vals)   # trailing states that start empty
+    p0 = vcat(π_vals, zeros(T, n_extra))        # occupancy including the absorbing state(s)
     bad = [zero(p0) for _ in times_unique]
     tmax = maximum(times_unique)
     for tc in (t0, tmax)                       # bracket the μ(t) extremes
@@ -260,6 +263,40 @@ function build_queuing_model(k::AbstractVector{<:Integer}; paused=falses(length(
     end
 
     return (; transition_fcn, coarse_grain, n_hidden)
+end
+
+
+# ================================ Counting exits from the last compartment ================================
+
+# Wrap a model so that follicles leaving the final observed compartment (Secondary)
+# land in their own absorbing "exited" state instead of the shared unobserved bin.
+# Exits to tertiary and atresia from Secondary are both counted: they clear the
+# program either way. Deaths from earlier compartments still go to the unobserved bin.
+#
+# The augmented generator has states [hidden..., exited, unobserved], so it slots
+# straight into probability_flow / sample_model (which drop the final state), and
+# `coarse_grain` (1 × n_hidden+1) picks out the exited state. Thus
+#     make_sample_fun(chain, ex.transition_fcn; coarse_grain=ex.coarse_grain)
+# samples the cumulative number of follicles that have left Secondary since t=2.
+# Works with time-dependent (callable) generators too.
+function with_exit_counter(transition_fcn, coarse_grain)
+    n_hidden = size(coarse_grain, 2)
+    last_comp = findall(>(0), coarse_grain[end, :])   # hidden substates of the final compartment
+    function augment(W)
+        n = size(W, 1)                               # = n_hidden + 1
+        Wa = zeros(eltype(W), n + 1, n + 1)
+        Wa[1:n_hidden, 1:n_hidden] = W[1:n_hidden, 1:n_hidden]
+        Wa[n + 1, 1:n_hidden] = W[n, 1:n_hidden]     # flow into the unobserved bin...
+        Wa[n, last_comp] = W[n, last_comp]           # ...except from the last compartment
+        Wa[n + 1, last_comp] .= 0
+        return Wa
+    end
+    function exit_transition_fcn(rate_params)
+        W = transition_fcn(rate_params)
+        return W isa Function ? (t -> augment(W(t))) : augment(W)
+    end
+    return (; transition_fcn = exit_transition_fcn,
+              coarse_grain = hcat(zeros(1, n_hidden), 1.0))
 end
 
 

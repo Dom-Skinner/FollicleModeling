@@ -71,6 +71,10 @@ plt_mean, plt_cov = calibration_plots(sample_fun, input_data, times_vec, times_u
 plot(plt_mean, plt_cov)
 savefig("plots/PausedTimeDep_predictive_checks_fitted_rates.pdf")
 
+# Cumulative follicles that have left Secondary (to tertiary or atresia) since 2 months
+savefig(exited_follicles_plot(chain, transition_fcn, coarse_grain, t_vals; N_samples),
+        "plots/PausedTimeDep_model_exited_follicles.pdf")
+
 # prior/posterior check
 param_plots = plot_param_posteriors(chain,
     ["ic[1]", "ic[2]", "rate_params[1]", "rate_params[2]", "rate_params[3]", "rate_params[4]",

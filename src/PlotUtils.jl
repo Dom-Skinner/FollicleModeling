@@ -1,6 +1,7 @@
 using Plots
 using StatsPlots
 using Statistics
+using Measures
 
 
 # Returns an array of n_obs initialized plots, each with nested credible ribbon bands.
@@ -16,6 +17,19 @@ function credible_ribbon_plots(quantiles, t_vals)
               fillalpha=0.2, fc=:blue, lc=:black)
     end
     return p_arr
+end
+
+
+# Posterior-predictive ribbon of the cumulative number of follicles in one ovary that
+# have left the final observed compartment (Secondary -> tertiary or atresia) since
+# t = 2 months. Same machinery as the fitted-rates ribbons, with an extra absorbing
+# "exited" state added to the generator (see with_exit_counter). Returns the plot.
+function exited_follicles_plot(chain, transition_fcn, coarse_grain, t_vals; N_samples=1000)
+    ex = with_exit_counter(transition_fcn, coarse_grain)
+    sample_fun = make_sample_fun(chain, ex.transition_fcn; coarse_grain=ex.coarse_grain)
+    p = only(credible_ribbon_plots(compute_quantiles(sample_fun, t_vals; N_samples), t_vals))
+    return plot(p, xlabel="Age (months)", ylabel="Cumulative follicles exiting Secondary",
+                legend=false, size=(500,400), margin=4mm)
 end
 
 
