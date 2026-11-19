@@ -155,7 +155,8 @@ end
 # Only changes of *category* are recorded (moves between hidden substates of the same
 # compartment are not). Categories: 1..C = observed compartments, C+1 = exited the last
 # compartment (tertiary or atresia), C+2 = died. Returns a NamedTuple of plain arrays
-# (safe to jldsave): t0, t1, categories, initial (category per follicle), and the
+# (safe to jldsave): t0, t1, categories, initial (category per follicle), initial_state
+# (hidden state per follicle, e.g. for labelling a substate), and the
 # time-sorted event list event_time / event_follicle / event_to.
 #
 # Time-dependent generators (the TimeDep models, where transition_fcn returns t -> W(t))
@@ -196,7 +197,7 @@ function simulate_ovary(samp, transition_fcn, coarse_grain; t0=2.0, t1=12.0)
     end
     order = sortperm(event_time)
     return (; t0, t1, categories = vcat(["Primordial", "Primary", "Secondary"][1:C], "Exited secondary", "Died"),
-              initial = category[state0], event_time = event_time[order],
+              initial = category[state0], initial_state = state0, event_time = event_time[order],
               event_follicle = event_follicle[order], event_to = event_to[order])
 end
 
