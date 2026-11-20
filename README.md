@@ -2,6 +2,8 @@
 
 Compartmental modeling of ovarian follicle dynamics in mice. The project fits Markov models to follicle count data (2, 4, 6, 9, 12 months) with Bayesian inference. 
 
+**See [MODELING_GUIDE.md](MODELING_GUIDE.md)** for the full math, code conventions, parameter indexing, and how to get credible intervals for any quantity you compute from a fitted model.
+
 ## Biological context
 
 Mouse ovarian follicles progress through distinct developmental stages — Primordial → Primary → Secondary — before either dying or maturing further. Each model represents a different biological hypothesis about what governs that progression: simple exponential residence times (Faddy), the possibility of paused/dormant states (Pausing), or non-exponential (Erlang-distributed) residence times arising from hidden sub-stages (Queuing/Erlang).
